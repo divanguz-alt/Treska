@@ -40,6 +40,9 @@ It installs next to the old Treska and shares no data with it.
   same trip, marked `≈ procjena`. Vehicles ZET published no GPS fix for are
   drawn dimmed with an outer ring and listed in the `PROCJENA` legend entry.
 - Light + dark theme (system default, persisted, menu in the map header).
+- **Settings screen** (gear in the header): theme, schedule refresh, and a
+  **self-update** that checks GitHub Releases (`divanguz-alt/Treska`), shows the
+  changelog, downloads the APK and launches the Android installer.
 - Croatian UI, monospace LED-board identity, amber accents.
 - Diagnostics sheet with parse/refresh timings, entity counts, `KANAL`
   (WS/REST) and `STAROST PODATAKA`, retry buttons.
@@ -57,15 +60,19 @@ split across `ValueNotifier`s. Full details and gotchas: `CLAUDE.md`.
 ## Verification performed
 
 - `flutter analyze` → **No issues found**.
-- `flutter test` → **20/20 passed** (geometry, countdown, formatting, theme,
-  stop card in both brightnesses, GTFS-RT parsing, feed-age math, relay decode).
-- `flutter build apk --release` → success (49.8 MB).
+- `flutter test` → **30/30 passed** (geometry, countdown, formatting, theme,
+  stop card in both brightnesses, GTFS-RT parsing, feed-age math, relay decode,
+  update version comparison + release parsing).
+- `flutter build apk --release` → success (51.0 MB).
 - Installed and launched on `emulator-5554`; no Flutter/Android exceptions.
 - Debug-instrumented run confirmed the full pipeline:
   `stops=3800 trips=13532`, every 5 s `tram=5 bus=5 veh≈550 err=""`.
 - Live run confirmed streaming: header showed `◉ SADA`, `495 vozila`,
   `162T · 333B · RT 16 · ≈ 46 · ~ 272`; diagnostics showed
   `KANAL: WS (stream)` and `STAROST PODATAKA: 2 s`.
+- Settings verified on device: `Instalirano 2.0.0 (3)`, GitHub check reached the
+  API and reported "Repozitorij još nema objavljenih izdanja" (repo not created
+  yet), screen renders in both themes.
 - First launch downloads the 18.8 MB static ZIP, parses it, then polls RT.
 - Permission flow: location prompt appears once; denying falls back to Zagreb
   main station without crashing.
@@ -95,11 +102,16 @@ split across `ValueNotifier`s. Full details and gotchas: `CLAUDE.md`.
 
 ## Before distributing
 
-1. Create an upload keystore and a `key.properties`, wire it into
+1. Create the GitHub repo `divanguz-alt/Treska` and publish the first release
+   (tag `v2.0.0`, attach `app-release.apk`) — the updater needs a published
+   release with an `.apk` asset to find anything.
+2. Create an upload keystore and a `key.properties`, wire it into
    `signingConfigs.release`, rebuild. Never commit the keystore or passwords.
-2. Real-device run: GPS permission, tile loading, 5 s refresh, battery.
-3. Optional: parsed-index disk cache; board/map widget tests.
-4. Push to GitHub only after explicit confirmation from the user.
+   Note: a build signed with a different key cannot update an installed one —
+   the signature must stay stable for self-update to work.
+3. Real-device run: GPS permission, tile loading, 5 s refresh, battery.
+4. Optional: parsed-index disk cache; board/map widget tests.
+5. Push to GitHub only after explicit confirmation from the user.
 
 ## Commands
 

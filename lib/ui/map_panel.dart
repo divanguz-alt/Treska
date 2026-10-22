@@ -7,6 +7,7 @@ import '../data/feed_controller.dart';
 import '../data/models.dart';
 import '../theme_controller.dart';
 import 'diagnostics_sheet.dart';
+import 'settings_screen.dart';
 import 'widgets/pulse.dart';
 import 'widgets/timer_builder.dart';
 import 'widgets/vehicle_marker.dart';
@@ -465,6 +466,18 @@ class _MapHeader extends StatelessWidget {
                 color: colors.textDim,
                 onPressed: () => showDiagnostics(context, feed),
                 icon: const Icon(Icons.info_outline),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Postavke',
+                iconSize: 18,
+                color: colors.textDim,
+                onPressed: () => showSettings(
+                  context,
+                  feed: feed,
+                  themeController: themeController,
+                ),
+                icon: const Icon(Icons.settings_outlined),
               ),
             ],
           ),

@@ -34,6 +34,11 @@ android {
     }
 }
 
+dependencies {
+    // FileProvider, used to hand a downloaded update APK to the system installer.
+    implementation("androidx.core:core-ktx:1.13.1")
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17

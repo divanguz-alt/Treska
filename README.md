@@ -12,6 +12,11 @@ stajališta.
   pa se odmah vidi koliko su podaci stari.
 - **Tramvaji / autobusi** prebacuju se tabovima; karta prati odabrani način.
 - **Light + dark** tema (Sustav / Svijetlo / Tamno) u izborniku gore desno.
+- **Postavke** (zubčanik u zaglavlju): tema, ponovno preuzimanje rasporeda i
+  **ažuriranje aplikacije**. Aplikacija provjeri GitHub izdanja
+  (`divanguz-alt/Treska`), pokaže što je novo, preuzme APK i otvori Androidov
+  instalater. Prvi put Android traži dopuštenje "instaliraj nepoznate
+  aplikacije".
 - Dijagnostika je iza ikone `i` — ne zauzima ekran.
 
 ## Zašto je brža od prve verzije
@@ -46,6 +51,10 @@ Release APK:
 flutter build apk --release
 # build/app/outputs/flutter-apk/app-release.apk
 ```
+
+Novo izdanje za samo-ažuriranje: digni `version` u `pubspec.yaml`, izgradi APK i
+objavi GitHub Release s oznakom `vX.Y.Z` i priloženim APK-om. Aplikacija ga
+pronađe sama — ništa drugo ne treba mijenjati.
 
 Prvo pokretanje preuzima ~19 MB rasporeda (kešira se 12 h). Potreban je internet
 i dopuštenje za lokaciju; bez GPS-a app radi oko Zagrebačkog glavnog kolodvora.

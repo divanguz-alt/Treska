@@ -34,6 +34,7 @@ lib/
     gtfs_rt.dart         hand-written GTFS-Realtime protobuf reader
     rt_socket.dart       streaming vehicle feed (wss relay), REST fallback
     wire_feed.dart       relay JSON -> RtFeed (delta coords, per-vehicle delay)
+    update_service.dart  GitHub Releases check + APK download/install
     feed_engine.dart     static+RT join: nearby stops, arrivals, vehicles
     worker.dart          background isolate: download, parse, RT polling/socket
     feed_controller.dart UI-facing ValueNotifiers + lifecycle + 5 s poll loop
@@ -43,6 +44,7 @@ lib/
     map_panel.dart       FlutterMap, vehicles, stops, header, legend, age chip
     board_panel.dart     tram/bus tabs, loading/error/empty states
     diagnostics_sheet.dart
+    settings_screen.dart theme, data controls, self-update
     widgets/             arrival_row, stop_card, vehicle_marker, pulse,
                          timer_builder
 test/                    models + theme + widget + RT/wire tests
@@ -133,6 +135,26 @@ speed-up, never a hard dependency.
 chip (`◉ SADA` / `◉ N min`) and the diagnostics `STAROST PODATAKA` row always
 report the real age, including time spent with no data at all. The chip is driven
 by `TimerBuilder` (1 s) so it keeps counting up on a stalled feed.
+
+## Self-update
+
+Settings (`lib/ui/settings_screen.dart`, gear icon in the map header) checks
+GitHub Releases and can install a newer build in place.
+
+- Repository is hard-coded in `UpdateService`: `divanguz-alt/Treska`. No token;
+  the public Releases API is read unauthenticated.
+- `GET /repos/divanguz-alt/Treska/releases/latest` → the first `.apk` asset is
+  offered. The comparison uses the decoded `versionCode` (major·10000 +
+  minor·100 + patch, or an explicit `+N` in the tag) against the value Android
+  reports for the installed build over the `hr.zet.zet2/updates` channel.
+- Download goes to the app cache; `MainActivity` then hands it to the package
+  installer through a `FileProvider` (`${applicationId}.fileprovider`, paths in
+  `res/xml/file_paths.xml`). `REQUEST_INSTALL_PACKAGES` is declared; the first
+  install needs the OS-level "install unknown apps" grant, and the UI offers to
+  open that screen if the installer refuses.
+- Publishing a release is therefore: bump `version`, `flutter build apk
+  --release`, create a GitHub Release tagged `v2.0.1` with the APK attached.
+  Nothing else in the app needs to change.
 
 ## Data sources
 
