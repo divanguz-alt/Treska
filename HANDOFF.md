@@ -31,37 +31,54 @@ It installs next to the old Treska and shares no data with it.
 - Departure board: 5 nearest tram + 5 nearest bus stops, realtime vs schedule
   arrivals, per-mode tabs with counts.
 - RT vehicle positions and stop-time updates joined with the static schedule.
+- **Streaming realtime**: vehicle fixes arrive over `wss://zet.skoljka.org/ws-v4`
+  (~10 s cadence, the same relay zet.skoljka.org uses). REST protobuf polling
+  remains as fallback and still supplies the StopTimeUpdate predictions.
+- **Honest data-age meter**: `◉ SADA` / `◉ N min` chip in the header counts up
+  second by second, so a stalled feed is visible instead of silently stale.
+- **Delays propagate**: a per-trip delay shifts every later scheduled row of the
+  same trip, marked `≈ procjena`. Vehicles ZET published no GPS fix for are
+  drawn dimmed with an outer ring and listed in the `PROCJENA` legend entry.
 - Light + dark theme (system default, persisted, menu in the map header).
 - Croatian UI, monospace LED-board identity, amber accents.
-- Diagnostics sheet with parse/refresh timings, entity counts, retry buttons.
+- Diagnostics sheet with parse/refresh timings, entity counts, `KANAL`
+  (WS/REST) and `STAROST PODATAKA`, retry buttons.
 - Errors surfaced as a banner + retry, not as a permanent wall of text.
 
 ### Performance architecture (short version)
 
 Worker isolate downloads and parses GTFS once (~580 ms on the dev Mac, 5.3 s on
 the emulator), keeps only today's 13.5k trips in typed arrays, and performs the
-RT join (2–14 ms). The UI only receives a small immutable snapshot. Refresh is
-5 s, paused in background, split across `ValueNotifier`s. Full details and
-gotchas: `CLAUDE.md`.
+RT join (2–14 ms). A WebSocket client feeds the freshest vehicle snapshots in as
+they are published and the worker merges them with the REST predictions; the UI
+only receives a small immutable snapshot. Refresh is 5 s, paused in background,
+split across `ValueNotifier`s. Full details and gotchas: `CLAUDE.md`.
 
 ## Verification performed
 
 - `flutter analyze` → **No issues found**.
-- `flutter test` → **9/9 passed** (geometry, countdown, formatting, theme,
-  stop card in both brightnesses).
-- `flutter build apk --release` → success (49.5 MB).
+- `flutter test` → **20/20 passed** (geometry, countdown, formatting, theme,
+  stop card in both brightnesses, GTFS-RT parsing, feed-age math, relay decode).
+- `flutter build apk --release` → success (49.8 MB).
 - Installed and launched on `emulator-5554`; no Flutter/Android exceptions.
 - Debug-instrumented run confirmed the full pipeline:
   `stops=3800 trips=13532`, every 5 s `tram=5 bus=5 veh≈550 err=""`.
+- Live run confirmed streaming: header showed `◉ SADA`, `495 vozila`,
+  `162T · 333B · RT 16 · ≈ 46 · ~ 272`; diagnostics showed
+  `KANAL: WS (stream)` and `STAROST PODATAKA: 2 s`.
 - First launch downloads the 18.8 MB static ZIP, parses it, then polls RT.
 - Permission flow: location prompt appears once; denying falls back to Zagreb
   main station without crashing.
 
 ## Known limitations
 
-- **GTFS-RT only publishes the next stop(s)** per trip (~670 updates for ~560
-  vehicles). Most board rows therefore show scheduled times; RT rows are marked.
-  This is a ZET feed limitation, same as in ZET 1.
+- **GTFS-RT only publishes the next stop(s)** per trip (~600 stop-time updates
+  for ~500 vehicles). The board marks RT rows, shifts the rest of a trip by the
+  known delay (`≈ procjena`), and leaves everything else as scheduled. This is a
+  ZET feed limitation, same as in ZET 1.
+- The streaming relay is a third-party service run for zet.skoljka.org. It is
+  used to cut latency, never as a hard dependency: if it is silent for 45 s the
+  worker falls back to REST polling for vehicles too.
 - First launch needs network and downloads ~19 MB; static ZIP is cached 12 h and
   re-parsed on restart (5 s on the emulator, <1 s on a Mac). A binary cache of
   the parsed index would remove the re-parse, but was not needed.

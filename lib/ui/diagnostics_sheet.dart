@@ -26,15 +26,19 @@ class _DiagnosticsSheet extends StatelessWidget {
     final snapshot = feed.snapshot.value;
     final stats = snapshot?.stats ?? const FeedStats();
     final pos = feed.position.value;
+    final age = stats.feedTimestamp > 0 ? stats.ageSecAt(DateTime.now()) : -1;
 
     final rows = <(String, String)>[
+      ('Kanal', stats.streaming ? 'WS (stream)' : 'REST (poll)'),
       ('Raspored', status.staticReady ? 'učitan' : 'nije učitan'),
       ('Stajališta', '${status.stopCount}'),
       ('Aktivni polasci', '${status.tripCount}'),
       ('Parsiranje', '${status.parseMs} ms'),
       ('Osvježavanje', '${stats.refreshMs} ms'),
+      ('Starost podataka', age < 0 ? '—' : '$age s'),
       ('RT entiteti', '${stats.rtEntities}'),
       ('RT dolasci', '${stats.rtArrivals}'),
+      ('S kašnjenjem', '${stats.estimatedArrivals}'),
       ('Iz rasporeda', '${stats.scheduledArrivals}'),
       ('Vozila', '${stats.vehicles} (${stats.vehiclesTram} tram / '
           '${stats.vehiclesBus} bus)'),
@@ -43,6 +47,8 @@ class _DiagnosticsSheet extends StatelessWidget {
           : 'nema GPS-a (Zagreb centar)'),
       ('Zadnje', snapshot == null ? '—' : hhmmss(snapshot.updatedAt)),
       ('Interval', '${FeedController.pollInterval.inSeconds} s'),
+      ('Karta', colors.isDark ? 'Esri Dark Gray' : 'OpenStreetMap'),
+      ('Karta izvor', colors.tileAttribution),
       if (status.staticError.isNotEmpty) ('Greška', status.staticError),
       if (snapshot != null && snapshot.error.isNotEmpty)
         ('RT greška', snapshot.error),

@@ -24,9 +24,19 @@ class ZetColors extends ThemeExtension<ZetColors> {
   final Color danger;
   final Color ok;
 
-  /// Tile URL template for the map (CARTO raster tiles).
+  /// Raster tile template for the map. `{s}` is optional.
   final String tileUrl;
+
+  /// Extra tile layer drawn on top (e.g. labels for a base map). Empty when the
+  /// main layer already contains labels.
+  final String tileLabelsUrl;
   final List<String> tileSubdomains;
+
+  /// Provider credit shown on the map (required by the tile terms).
+  final String tileAttribution;
+
+  /// Highest zoom the provider serves natively; higher zooms are upscaled.
+  final int tileMaxNativeZoom;
 
   const ZetColors({
     required this.brightness,
@@ -46,6 +56,9 @@ class ZetColors extends ThemeExtension<ZetColors> {
     required this.ok,
     required this.tileUrl,
     required this.tileSubdomains,
+    this.tileLabelsUrl = '',
+    required this.tileAttribution,
+    this.tileMaxNativeZoom = 19,
   });
 
   bool get isDark => brightness == Brightness.dark;
@@ -66,8 +79,15 @@ class ZetColors extends ThemeExtension<ZetColors> {
     bus: Color(0xFF4CC45A),
     danger: Color(0xFFFF5544),
     ok: Color(0xFF4CC45A),
-    tileUrl: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    tileSubdomains: ['a', 'b', 'c', 'd'],
+    // Esri's dark canvas: labels are a separate reference layer, stacked on
+    // top by the map panel. Both are free to use with attribution.
+    tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/'
+        'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    tileLabelsUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/'
+        'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+    tileSubdomains: [],
+    tileAttribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
+    tileMaxNativeZoom: 16,
   );
 
   static const light = ZetColors(
@@ -86,9 +106,11 @@ class ZetColors extends ThemeExtension<ZetColors> {
     bus: Color(0xFF2A7A33),
     danger: Color(0xFFC0281B),
     ok: Color(0xFF2A7A33),
-    // light_all keeps the same style as dark_all: no POI clutter.
-    tileUrl: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    tileSubdomains: ['a', 'b', 'c', 'd'],
+    // Plain OpenStreetMap raster tiles: free, no key, labelled.
+    tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    tileSubdomains: [],
+    tileAttribution: '© OpenStreetMap contributors',
+    tileMaxNativeZoom: 19,
   );
 
   @override
@@ -109,7 +131,10 @@ class ZetColors extends ThemeExtension<ZetColors> {
     Color? danger,
     Color? ok,
     String? tileUrl,
+    String? tileLabelsUrl,
     List<String>? tileSubdomains,
+    String? tileAttribution,
+    int? tileMaxNativeZoom,
   }) {
     return ZetColors(
       brightness: brightness ?? this.brightness,
@@ -128,7 +153,10 @@ class ZetColors extends ThemeExtension<ZetColors> {
       danger: danger ?? this.danger,
       ok: ok ?? this.ok,
       tileUrl: tileUrl ?? this.tileUrl,
+      tileLabelsUrl: tileLabelsUrl ?? this.tileLabelsUrl,
       tileSubdomains: tileSubdomains ?? this.tileSubdomains,
+      tileAttribution: tileAttribution ?? this.tileAttribution,
+      tileMaxNativeZoom: tileMaxNativeZoom ?? this.tileMaxNativeZoom,
     );
   }
 
@@ -152,7 +180,11 @@ class ZetColors extends ThemeExtension<ZetColors> {
       danger: Color.lerp(danger, other.danger, t)!,
       ok: Color.lerp(ok, other.ok, t)!,
       tileUrl: t < 0.5 ? tileUrl : other.tileUrl,
+      tileLabelsUrl: t < 0.5 ? tileLabelsUrl : other.tileLabelsUrl,
       tileSubdomains: t < 0.5 ? tileSubdomains : other.tileSubdomains,
+      tileAttribution: t < 0.5 ? tileAttribution : other.tileAttribution,
+      tileMaxNativeZoom:
+          t < 0.5 ? tileMaxNativeZoom : other.tileMaxNativeZoom,
     );
   }
 }

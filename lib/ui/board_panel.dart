@@ -59,6 +59,7 @@ class BoardPanel extends StatelessWidget {
                         error: snapshot.error,
                       ),
               ),
+              if (!loading) const _BoardLegend(),
             ],
           ),
         );
@@ -197,6 +198,55 @@ class _TabButton extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Teaches the three time formats once, without eating board space.
+class _BoardLegend extends StatelessWidget {
+  const _BoardLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    final style = TextStyle(
+      fontSize: 8,
+      letterSpacing: 0.5,
+      fontFamily: kMono,
+      color: colors.textDim,
+    );
+
+    return Container(
+      height: 20,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: colors.panel,
+        border: Border(top: BorderSide(color: colors.border)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(
+              color: colors.textHi,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text('RT', style: style.copyWith(color: colors.textHi)),
+          const SizedBox(width: 10),
+          Text('≈', style: style.copyWith(color: colors.accent, fontSize: 10)),
+          const SizedBox(width: 3),
+          Text('PROCJENA', style: style.copyWith(color: colors.accentDim)),
+          const SizedBox(width: 10),
+          Text('~', style: style.copyWith(fontSize: 10)),
+          const SizedBox(width: 3),
+          Text('RASPORED', style: style),
+          const Spacer(),
+          Text('800 m', style: style),
+        ],
       ),
     );
   }

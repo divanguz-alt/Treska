@@ -18,7 +18,9 @@ class _PendingVehicle {
   final String tripId;
   final String routeId;
   final double bearing;
-  const _PendingVehicle(this.tripId, this.routeId, this.bearing);
+  final int timestamp;
+  const _PendingVehicle(this.tripId, this.routeId, this.bearing,
+      [this.timestamp = 0]);
 }
 
 class _PrevPos {
@@ -41,12 +43,21 @@ class _Arr {
   final int routeType;
   final DateTime time;
   final bool realtime;
+
+  /// Schedule shifted by the trip's current RT delay.
+  final bool estimated;
+
+  /// Current trip delay in seconds (positive = late).
+  final int delaySec;
+
   const _Arr({
     required this.route,
     required this.headsign,
     required this.routeType,
     required this.time,
     required this.realtime,
+    this.estimated = false,
+    this.delaySec = 0,
   });
 }
 
@@ -79,6 +90,7 @@ class FeedEngine {
     required double lon,
     required Uint8List? rtBytes,
     required DateTime now,
+    RtFeed? rtFeed,
   }) {
     final sw = Stopwatch()..start();
 
@@ -100,22 +112,43 @@ class FeedEngine {
       for (final c in candidates) c.stopIdx: c,
     };
 
-    // ── Realtime feed ──────────────────────────────────────────────────────
+    // ── Realtime feeds ─────────────────────────────────────────────────────
+    // Two sources can be present at once and they complement each other:
+    //   * the protobuf REST feed carries StopTimeUpdate predictions (per stop),
+    //   * the streaming feed carries the freshest vehicle fixes and a
+    //     per-vehicle delay but no per-stop predictions.
+    // Vehicles are preferred from the stream; predictions always come from the
+    // protobuf feed.
     var error = '';
-    var feed = const RtFeed([]);
+    var restFeed = const RtFeed([]);
     if (rtBytes != null && rtBytes.isNotEmpty) {
       try {
-        feed = parseRtFeed(rtBytes);
+        restFeed = parseRtFeed(rtBytes);
       } catch (e) {
         error = 'RT: $e';
       }
     }
+    final streamFeed = rtFeed ?? const RtFeed([]);
+    final feed = streamFeed.entities.isEmpty && streamFeed.timestamp == 0
+        ? restFeed
+        : _merge(restFeed, streamFeed);
 
     final rtByTrip = <String, List<_RtTripStop>>{};
     final pending = <_PendingVehicle>[];
     final direct = <Vehicle>[];
     final pendingKeys = <String>{};
     var rtArrivalCount = 0;
+
+    // ZET timestamps positions against the feed header rather than "now", and
+    // both can be a couple of minutes behind wall clock. Track the newest fix
+    // so the UI can be honest about how live the dots really are.
+    var newestFix = 0;
+
+    // ZET mostly publishes a single StopTimeUpdate per trip (the stop the
+    // vehicle just left / is approaching), not a prediction chain. Store the
+    // freshest delay per trip so timetable rows further down the line can be
+    // shifted too — otherwise the board silently shows stale schedule times.
+    final tripDelay = <int, int>{};
 
     for (final entity in feed.entities) {
       final vp = entity.vehicle;
@@ -130,6 +163,7 @@ class FeedEngine {
             : data.routeIdx[vp.trip.routeId];
         if (routeIdx != null) {
           final route = data.routes[routeIdx];
+          if (vp.timestamp > newestFix) newestFix = vp.timestamp;
           direct.add(Vehicle(
             routeShortName: route.shortName,
             routeType: route.type,
@@ -137,6 +171,7 @@ class FeedEngine {
             lon: vp.position.longitude,
             bearing: vp.position.bearing,
             headsign: _headsignFor(trip),
+            positionTimestamp: vp.timestamp,
           ));
           if (tid.isNotEmpty) pendingKeys.add(tid);
         }
@@ -146,7 +181,8 @@ class FeedEngine {
       if (tu == null) {
         if (!hasGps && vp != null) {
           pending.add(_PendingVehicle(
-              vp.trip.tripId, vp.trip.routeId, vp.position.bearing));
+              vp.trip.tripId, vp.trip.routeId, vp.position.bearing,
+              vp.timestamp));
         }
         continue;
       }
@@ -173,15 +209,22 @@ class FeedEngine {
         final schedSec =
             pos >= 0 && pattern != null ? pattern.departureSec[pos] : 0;
 
+        // Delay reported for this stop (falls back to time - schedule).
+        int? stuDelay = stu.departure?.hasDelay == true
+            ? stu.departure!.delay
+            : (stu.arrival?.hasDelay == true ? stu.arrival!.delay : null);
+
         // Board time: absolute departure > absolute arrival > schedule + delay.
         var boardTs = stu.departure?.time ?? 0;
         if (boardTs == 0) boardTs = stu.arrival?.time ?? 0;
-        if (boardTs == 0 && schedSec != 0) {
-          final delay = stu.departure?.hasDelay == true
-              ? stu.departure!.delay
-              : (stu.arrival?.hasDelay == true ? stu.arrival!.delay : null);
-          if (delay != null) boardTs = midnightUnix + schedSec + delay;
+        if (boardTs == 0 && schedSec != 0 && stuDelay != null) {
+          boardTs = midnightUnix + schedSec + stuDelay;
         }
+        if (stuDelay == null && boardTs > 0 && schedSec != 0) {
+          stuDelay = boardTs - (midnightUnix + schedSec);
+        }
+        // Reject the wild values ZET occasionally emits (up to ±2 h).
+        if (stuDelay != null && stuDelay.abs() > 1800) stuDelay = null;
 
         // Vehicle-position time: prefer departure, fall back to board time.
         var depTs = stu.departure?.time ?? 0;
@@ -202,6 +245,7 @@ class FeedEngine {
               routeType: route.type,
               time: DateTime.fromMillisecondsSinceEpoch(boardTs * 1000),
               realtime: true,
+              delaySec: stuDelay ?? 0,
             ));
             rtArrivalCount++;
           }
@@ -211,6 +255,17 @@ class FeedEngine {
           (rtByTrip[tid] ??= <_RtTripStop>[])
               .add(_RtTripStop(stopIdx, depTs));
         }
+
+        // The last update in a TU is the most recent / furthest prediction.
+        if (trip != null && stuDelay != null) {
+          tripDelay[trip] = stuDelay.clamp(-300, 1200).toInt();
+        }
+      }
+
+      // Streaming snapshots carry a per-vehicle delay but no stop predictions,
+      // so the whole trip inherits it and later timetable rows stay aligned.
+      if (tu.stopTimeUpdates.isEmpty && tu.hasDelay && trip != null) {
+        tripDelay[trip] = tu.delay.clamp(-300, 1200).toInt();
       }
 
       if (!hasGps) {
@@ -281,6 +336,10 @@ class FeedEngine {
         lon: stop.lon,
         bearing: bearing,
         headsign: _headsignFor(trip),
+        positionTimestamp: p.timestamp,
+        // No GPS fix: the dot is where the timetable thinks the vehicle is,
+        // not where ZET measured it. Shown differently so it never reads live.
+        estimated: true,
       ));
     }
 
@@ -292,6 +351,7 @@ class FeedEngine {
 
     // ── Arrivals at nearby stops ───────────────────────────────────────────
     var scheduledCount = 0;
+    var estimatedCount = 0;
     for (final c in candidates) {
       final stopDeps = data.departures[c.stopIdx];
 
@@ -308,13 +368,25 @@ class FeedEngine {
         if (arrSec > nowSec + horizonSec) break;
         final trip = stopDeps.tripIdx[i];
         final route = data.routes[data.tripRoute[trip]];
+
+        // Shift timetable rows by the delay we learned for this trip. This is
+        // what makes the board useful beyond the one stop ZET reports.
+        final tripDelta = tripDelay[trip] ?? 0;
+        final applyDelay = tripDelta.abs() >= 60;
+        final delay = applyDelay ? tripDelta : 0;
+        final time = midnight.add(Duration(seconds: arrSec + delay));
+        if (time.millisecondsSinceEpoch ~/ 1000 < nowUnix - 60) continue;
+
         scheduledCount++;
+        if (applyDelay) estimatedCount++;
         c.arrivals.add(_Arr(
           route: route.shortName,
           headsign: _headsignFor(trip),
           routeType: route.type,
-          time: midnight.add(Duration(seconds: arrSec)),
+          time: time,
           realtime: false,
+          estimated: applyDelay,
+          delaySec: delay,
         ));
       }
 
@@ -326,18 +398,26 @@ class FeedEngine {
 
     final vehicleCount = vehicles.length;
     final tramVehicles = vehicles.where((v) => v.isTram).length;
+    final nowUnixForAge = now.millisecondsSinceEpoch ~/ 1000;
+    final feedTs = feed.timestamp > 0 ? feed.timestamp : nowUnixForAge;
+    final positionAge = newestFix > 0
+        ? (feedTs - newestFix).clamp(0, 3600)
+        : 0;
 
     final stats = FeedStats(
       vehicles: vehicleCount,
       vehiclesTram: tramVehicles,
       vehiclesBus: vehicleCount - tramVehicles,
       rtArrivals: rtArrivalCount,
+      estimatedArrivals: estimatedCount,
       scheduledArrivals: scheduledCount,
       rtEntities: feed.entities.length,
       staticStops: data.stops.length,
       staticTrips: data.tripIdx.length,
       staticParseMs: data.parseMs,
       refreshMs: sw.elapsedMilliseconds,
+      feedTimestamp: feed.timestamp,
+      positionAgeSec: positionAge,
     );
 
     return FeedSnapshot(
@@ -379,14 +459,7 @@ class FeedEngine {
       }
 
       if (bearing != v.bearing) {
-        vehicles[i] = Vehicle(
-          routeShortName: v.routeShortName,
-          routeType: v.routeType,
-          lat: v.lat,
-          lon: v.lon,
-          bearing: bearing,
-          headsign: v.headsign,
-        );
+        vehicles[i] = v.copyWith(bearing: bearing);
       }
 
       (next[v.routeShortName] ??= <_PrevPos>[])
@@ -473,8 +546,11 @@ class FeedEngine {
               time: a.time,
               source: a.realtime
                   ? ArrivalSource.realtime
-                  : ArrivalSource.scheduled,
+                  : (a.estimated
+                      ? ArrivalSource.estimated
+                      : ArrivalSource.scheduled),
               routeType: a.routeType,
+              delaySec: a.delaySec,
             ),
         ],
       ));
@@ -501,6 +577,37 @@ class FeedEngine {
 
   static String _normalizeName(String name) =>
       name.trim().toUpperCase().replaceAll(RegExp(r'\s+'), ' ');
+
+  /// Folds the protobuf predictions and the streamed vehicle fixes into one
+  /// feed. Streamed entities win for positions (newest fix) and contribute a
+  /// per-trip delay when the protobuf feed has no prediction for that trip.
+  static RtFeed _merge(RtFeed restFeed, RtFeed streamFeed) {
+    if (restFeed.entities.isEmpty) return streamFeed;
+    if (streamFeed.entities.isEmpty) return restFeed;
+
+    final entities = <RtEntity>[...streamFeed.entities];
+
+    final seen = <String>{};
+    for (final e in streamFeed.entities) {
+      final tid = e.tripUpdate?.trip.tripId ?? e.vehicle?.trip.tripId ?? '';
+      if (tid.isNotEmpty) seen.add(tid);
+    }
+
+    // Protobuf entities for trips the stream already covers would duplicate
+    // vehicles; keep only their predictions by clearing the position.
+    for (final e in restFeed.entities) {
+      final tid = e.tripUpdate?.trip.tripId ?? e.vehicle?.trip.tripId ?? '';
+      if (tid.isNotEmpty && seen.contains(tid)) {
+        if (e.tripUpdate != null && e.vehicle == null) {
+          entities.add(RtEntity(id: e.id, tripUpdate: e.tripUpdate));
+        }
+        continue;
+      }
+      entities.add(e);
+    }
+
+    return RtFeed(entities, timestamp: streamFeed.timestamp);
+  }
 
   static int _upperBound(Int32List values, int target) {
     var lo = 0;

@@ -38,7 +38,16 @@ class StopInfoList {
       stops.where((s) => s.serves(mode)).toList(growable: false);
 }
 
-enum ArrivalSource { realtime, scheduled }
+enum ArrivalSource {
+  /// Position/time straight from the GTFS-Realtime feed.
+  realtime,
+
+  /// Schedule shifted by the delay ZET currently reports for the same trip.
+  estimated,
+
+  /// Untouched timetable.
+  scheduled,
+}
 
 class Arrival {
   final String routeShortName;
@@ -49,15 +58,21 @@ class Arrival {
   final ArrivalSource source;
   final int routeType; // 0 = tram, 3 = bus
 
+  /// Current delay of the trip in seconds (positive = late). Only meaningful
+  /// for [ArrivalSource.realtime] and [ArrivalSource.estimated].
+  final int delaySec;
+
   const Arrival({
     required this.routeShortName,
     required this.headsign,
     required this.time,
     required this.source,
     required this.routeType,
+    this.delaySec = 0,
   });
 
   bool get isRealtime => source == ArrivalSource.realtime;
+  bool get isEstimated => source == ArrivalSource.estimated;
 
   int secondsUntil(DateTime now) => time.difference(now).inSeconds;
   int minutesUntil(DateTime now) {
@@ -86,6 +101,15 @@ class Vehicle {
   final double bearing;
   final String headsign;
 
+  /// Unix seconds of the last position ZET measured for this vehicle (0 when
+  /// unknown). Together with [FeedStats.feedTimestamp] it drives the staleness
+  /// label so the map never pretends a 2-minute-old dot is live.
+  final int positionTimestamp;
+
+  /// True when the coordinates were derived from the timetable instead of a
+  /// GPS report ZET published.
+  final bool estimated;
+
   const Vehicle({
     required this.routeShortName,
     required this.routeType,
@@ -93,10 +117,30 @@ class Vehicle {
     required this.lon,
     required this.bearing,
     required this.headsign,
+    this.positionTimestamp = 0,
+    this.estimated = false,
   });
 
   bool get isTram => routeType == kRouteTypeTram;
   bool get isMoving => bearing.abs() > 1;
+
+  Vehicle copyWith({
+    double? lat,
+    double? lon,
+    double? bearing,
+    String? headsign,
+  }) {
+    return Vehicle(
+      routeShortName: routeShortName,
+      routeType: routeType,
+      lat: lat ?? this.lat,
+      lon: lon ?? this.lon,
+      bearing: bearing ?? this.bearing,
+      headsign: headsign ?? this.headsign,
+      positionTimestamp: positionTimestamp,
+      estimated: estimated,
+    );
+  }
 }
 
 class FeedStats {
@@ -104,6 +148,7 @@ class FeedStats {
   final int vehiclesTram;
   final int vehiclesBus;
   final int rtArrivals;
+  final int estimatedArrivals;
   final int scheduledArrivals;
   final int rtEntities;
   final int staticStops;
@@ -111,17 +156,30 @@ class FeedStats {
   final int staticParseMs;
   final int refreshMs;
 
+  /// Feed header timestamp in unix seconds (0 when unknown).
+  final int feedTimestamp;
+
+  /// Seconds between the newest vehicle fix and the feed timestamp.
+  final int positionAgeSec;
+
+  /// True while updates arrive over the streaming channel.
+  final bool streaming;
+
   const FeedStats({
     this.vehicles = 0,
     this.vehiclesTram = 0,
     this.vehiclesBus = 0,
     this.rtArrivals = 0,
+    this.estimatedArrivals = 0,
     this.scheduledArrivals = 0,
     this.rtEntities = 0,
     this.staticStops = 0,
     this.staticTrips = 0,
     this.staticParseMs = 0,
     this.refreshMs = 0,
+    this.feedTimestamp = 0,
+    this.positionAgeSec = 0,
+    this.streaming = false,
   });
 
   FeedStats copyWith({
@@ -129,25 +187,41 @@ class FeedStats {
     int? vehiclesTram,
     int? vehiclesBus,
     int? rtArrivals,
+    int? estimatedArrivals,
     int? scheduledArrivals,
     int? rtEntities,
     int? staticStops,
     int? staticTrips,
     int? staticParseMs,
     int? refreshMs,
+    int? feedTimestamp,
+    int? positionAgeSec,
+    bool? streaming,
   }) {
     return FeedStats(
       vehicles: vehicles ?? this.vehicles,
       vehiclesTram: vehiclesTram ?? this.vehiclesTram,
       vehiclesBus: vehiclesBus ?? this.vehiclesBus,
       rtArrivals: rtArrivals ?? this.rtArrivals,
+      estimatedArrivals: estimatedArrivals ?? this.estimatedArrivals,
       scheduledArrivals: scheduledArrivals ?? this.scheduledArrivals,
       rtEntities: rtEntities ?? this.rtEntities,
       staticStops: staticStops ?? this.staticStops,
       staticTrips: staticTrips ?? this.staticTrips,
       staticParseMs: staticParseMs ?? this.staticParseMs,
       refreshMs: refreshMs ?? this.refreshMs,
+      feedTimestamp: feedTimestamp ?? this.feedTimestamp,
+      positionAgeSec: positionAgeSec ?? this.positionAgeSec,
+      streaming: streaming ?? this.streaming,
     );
+  }
+
+  /// How old the newest vehicle fix is, counted from "now" rather than from the
+  /// feed header, so a stalled feed keeps growing instead of freezing.
+  int ageSecAt(DateTime now) {
+    if (feedTimestamp <= 0) return positionAgeSec;
+    final headerAge = now.millisecondsSinceEpoch ~/ 1000 - feedTimestamp;
+    return (headerAge + positionAgeSec).clamp(0, 86400);
   }
 }
 

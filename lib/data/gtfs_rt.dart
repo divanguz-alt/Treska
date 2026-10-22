@@ -8,7 +8,10 @@ import 'dart:typed_data';
 
 class RtFeed {
   final List<RtEntity> entities;
-  const RtFeed(this.entities);
+
+  /// Feed header timestamp (GTFS-RT field 1), unix seconds, 0 when absent.
+  final int timestamp;
+  const RtFeed(this.entities, {this.timestamp = 0});
 }
 
 class RtEntity {
@@ -28,10 +31,12 @@ class RtPosition {
   final double latitude;
   final double longitude;
   final double bearing;
+  final double speed;
   const RtPosition({
     required this.latitude,
     required this.longitude,
     this.bearing = 0,
+    this.speed = 0,
   });
 }
 
@@ -40,11 +45,16 @@ class RtVehiclePosition {
   final RtPosition position;
   final int currentStopSequence;
   final String currentStopId;
+
+  /// Unix seconds when this position was measured (GTFS-RT field 5). 0 when
+  /// ZET did not publish it.
+  final int timestamp;
   const RtVehiclePosition({
     required this.trip,
     required this.position,
     this.currentStopSequence = 0,
     this.currentStopId = '',
+    this.timestamp = 0,
   });
 }
 
@@ -71,7 +81,23 @@ class RtStopTimeUpdate {
 class RtTripUpdate {
   final RtTripDescriptor trip;
   final List<RtStopTimeUpdate> stopTimeUpdates;
-  const RtTripUpdate({required this.trip, required this.stopTimeUpdates});
+
+  /// Trip-level delay in seconds (GTFS-RT field 5). ZET currently leaves this
+  /// empty and reports delays per stop instead. The streaming relay fills it
+  /// per vehicle from its own `reportDelays`.
+  final int delay;
+  final bool hasDelay;
+
+  /// Shape id from the relay (`<route>_<direction>`); empty for protobuf feeds.
+  final String shapeId;
+
+  const RtTripUpdate({
+    required this.trip,
+    required this.stopTimeUpdates,
+    this.delay = 0,
+    this.hasDelay = false,
+    this.shapeId = '',
+  });
 }
 
 // ── Cursor ──────────────────────────────────────────────────────────────────
@@ -176,6 +202,7 @@ RtPosition _position(_Reader r) {
   var lat = 0.0;
   var lon = 0.0;
   var bearing = 0.0;
+  var speed = 0.0;
   while (r.more) {
     final tag = r.varint();
     final field = tag >> 3;
@@ -187,11 +214,18 @@ RtPosition _position(_Reader r) {
         lon = r.f32();
       case 3:
         bearing = r.f32();
+      case 5:
+        speed = r.f32();
       default:
         r.skip(wire);
     }
   }
-  return RtPosition(latitude: lat, longitude: lon, bearing: bearing);
+  return RtPosition(
+    latitude: lat,
+    longitude: lon,
+    bearing: bearing,
+    speed: speed,
+  );
 }
 
 RtVehiclePosition _vehicle(_Reader r) {
@@ -199,6 +233,7 @@ RtVehiclePosition _vehicle(_Reader r) {
   var position = const RtPosition(latitude: 0, longitude: 0);
   var sequence = 0;
   var stopId = '';
+  var timestamp = 0;
   while (r.more) {
     final tag = r.varint();
     final field = tag >> 3;
@@ -212,6 +247,8 @@ RtVehiclePosition _vehicle(_Reader r) {
         sequence = r.varint();
       case 5:
         stopId = r.str();
+      case 6:
+        timestamp = r.varint();
       default:
         r.skip(wire);
     }
@@ -221,6 +258,7 @@ RtVehiclePosition _vehicle(_Reader r) {
     position: position,
     currentStopSequence: sequence,
     currentStopId: stopId,
+    timestamp: timestamp,
   );
 }
 
@@ -278,6 +316,8 @@ RtStopTimeUpdate _stopTimeUpdate(_Reader r) {
 RtTripUpdate _tripUpdate(_Reader r) {
   var trip = const RtTripDescriptor();
   final updates = <RtStopTimeUpdate>[];
+  var delay = 0;
+  var hasDelay = false;
   while (r.more) {
     final tag = r.varint();
     final field = tag >> 3;
@@ -287,11 +327,19 @@ RtTripUpdate _tripUpdate(_Reader r) {
         trip = _trip(r.sub());
       case 2:
         updates.add(_stopTimeUpdate(r.sub()));
+      case 5:
+        delay = r.svarint();
+        hasDelay = true;
       default:
         r.skip(wire);
     }
   }
-  return RtTripUpdate(trip: trip, stopTimeUpdates: updates);
+  return RtTripUpdate(
+    trip: trip,
+    stopTimeUpdates: updates,
+    delay: delay,
+    hasDelay: hasDelay,
+  );
 }
 
 RtEntity _entity(_Reader r) {
@@ -320,6 +368,7 @@ RtEntity _entity(_Reader r) {
 RtFeed parseRtFeed(Uint8List data) {
   final r = _Reader(data);
   final entities = <RtEntity>[];
+  var timestamp = 0;
   try {
     while (r.more) {
       final tag = r.varint();
@@ -327,7 +376,7 @@ RtFeed parseRtFeed(Uint8List data) {
       final wire = tag & 7;
       switch (field) {
         case 1:
-          r.sub(); // FeedHeader — not needed
+          timestamp = _header(r.sub()); // FeedHeader
         case 2:
           entities.add(_entity(r.sub()));
         default:
@@ -337,5 +386,22 @@ RtFeed parseRtFeed(Uint8List data) {
   } catch (_) {
     // Return the entities parsed before the malformed field.
   }
-  return RtFeed(entities);
+  return RtFeed(entities, timestamp: timestamp);
+}
+
+/// Reads `header.timestamp` (field 1) so the board can show how old the feed is.
+int _header(_Reader r) {
+  var timestamp = 0;
+  while (r.more) {
+    final tag = r.varint();
+    final field = tag >> 3;
+    final wire = tag & 7;
+    switch (field) {
+      case 1:
+        timestamp = r.varint();
+      default:
+        r.skip(wire);
+    }
+  }
+  return timestamp;
 }

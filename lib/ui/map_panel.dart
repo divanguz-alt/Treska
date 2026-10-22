@@ -8,6 +8,7 @@ import '../data/models.dart';
 import '../theme_controller.dart';
 import 'diagnostics_sheet.dart';
 import 'widgets/pulse.dart';
+import 'widgets/timer_builder.dart';
 import 'widgets/vehicle_marker.dart';
 
 class MapPanel extends StatefulWidget {
@@ -36,6 +37,10 @@ class _MapPanelState extends State<MapPanel> {
   int _circlesMode = -1;
   Brightness? _circlesBrightness;
 
+  int _tileErrors = 0;
+  bool _tilesFailed = false;
+  int _tileGeneration = 0;
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +63,21 @@ class _MapPanelState extends State<MapPanel> {
         if (mounted) _map.move(center, 14.5);
       });
     }
+  }
+
+  void _onTileError() {
+    _tileErrors++;
+    if (_tileErrors >= 6 && !_tilesFailed && mounted) {
+      setState(() => _tilesFailed = true);
+    }
+  }
+
+  void _retryTiles() {
+    setState(() {
+      _tileErrors = 0;
+      _tilesFailed = false;
+      _tileGeneration++;
+    });
   }
 
   void _recenter() {
@@ -141,12 +161,23 @@ class _MapPanelState extends State<MapPanel> {
                 ),
                 children: [
                   TileLayer(
+                    key: ValueKey('base_${colors.brightness}_$_tileGeneration'),
                     urlTemplate: colors.tileUrl,
                     subdomains: colors.tileSubdomains,
                     userAgentPackageName: 'hr.zet.zet2',
-                    retinaMode: MediaQuery.devicePixelRatioOf(context) > 1.5,
-                    maxNativeZoom: 19,
+                    maxNativeZoom: colors.tileMaxNativeZoom,
+                    errorTileCallback: (_, _, _) => _onTileError(),
                   ),
+                  if (colors.tileLabelsUrl.isNotEmpty)
+                    TileLayer(
+                      key: ValueKey(
+                          'labels_${colors.brightness}_$_tileGeneration'),
+                      urlTemplate: colors.tileLabelsUrl,
+                      subdomains: colors.tileSubdomains,
+                      userAgentPackageName: 'hr.zet.zet2',
+                      maxNativeZoom: colors.tileMaxNativeZoom,
+                      errorTileCallback: (_, _, _) => _onTileError(),
+                    ),
                   CircleLayer(circles: circles),
                   MarkerLayer(
                     markers: [
@@ -206,11 +237,91 @@ class _MapPanelState extends State<MapPanel> {
         ),
 
         Positioned(
+          left: 52,
+          bottom: 12,
+          child: _Attribution(colors: colors),
+        ),
+
+        Positioned(
           right: 8,
           bottom: 8,
           child: _Legend(mode: widget.mode),
         ),
+
+        if (_tilesFailed)
+          Positioned(
+            left: 52,
+            bottom: 52,
+            child: _TileErrorChip(onTap: _retryTiles),
+          ),
       ],
+    );
+  }
+}
+
+/// Required credit for the tile provider. Kept tiny so it does not fight the
+/// LED-board look.
+class _Attribution extends StatelessWidget {
+  final ZetColors colors;
+  const _Attribution({required this.colors});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.panel.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(2),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Text(
+          colors.isDark ? '© Esri · OSM' : '© OpenStreetMap',
+          style: TextStyle(
+            fontSize: 7,
+            color: colors.textDim,
+            letterSpacing: 0.2,
+            fontFamily: kMono,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TileErrorChip extends StatelessWidget {
+  final VoidCallback onTap;
+  const _TileErrorChip({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: colors.panel.withValues(alpha: 0.94),
+          border: Border.all(color: colors.danger.withValues(alpha: 0.6)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.map_outlined, size: 11, color: colors.danger),
+            const SizedBox(width: 5),
+            Text(
+              'KARTA SE NE UČITAVA',
+              style: TextStyle(
+                fontSize: 8,
+                color: colors.danger,
+                letterSpacing: 0.8,
+                fontFamily: kMono,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(Icons.refresh, size: 11, color: colors.danger),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -263,107 +374,200 @@ class _MapHeader extends StatelessWidget {
         final updated = snapshot?.updatedAt;
         final stale = updated == null ||
             DateTime.now().difference(updated) > const Duration(seconds: 45);
-        final label = '${stats.vehicles} vozila  ·  '
-            '${stats.vehiclesTram} tram / ${stats.vehiclesBus} bus';
+        final label = '${stats.vehicles} vozila';
 
-        return Container(
-          decoration: BoxDecoration(
-            color: colors.bg.withValues(alpha: 0.86),
-            border: Border(bottom: BorderSide(color: colors.border)),
-          ),
-          padding: const EdgeInsets.fromLTRB(10, 5, 4, 5),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  PulseDot(
-                    size: 6,
-                    color: stale ? colors.danger : colors.accent,
-                    minOpacity: 0.3,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'ZET LIVE',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: colors.accent,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.4,
-                      fontFamily: kMono,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      label,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: colors.textDim,
-                        letterSpacing: 0.4,
-                        fontFamily: kMono,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  if (!status.gps)
-                    _GpsChip(onTap: feed.retryLocation),
-                  _ThemeButton(controller: themeController),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: 'Dijagnostika',
-                    iconSize: 18,
-                    color: colors.textDim,
-                    onPressed: () => showDiagnostics(context, feed),
-                    icon: const Icon(Icons.info_outline),
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  Text(
-                    updated == null ? '—' : hhmmss(updated),
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: stale ? colors.danger : colors.textHi,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                      fontFamily: kMono,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      status.staticReady
-                          ? 'RT ${stats.rtArrivals} · raspored ${stats.staticTrips} polazaka'
-                          : status.loading,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: colors.textDim,
-                        letterSpacing: 0.2,
-                        fontFamily: kMono,
-                      ),
-                    ),
-                  ),
-                  if (stale && updated != null)
-                    Text(
-                      'ZASTARJELO',
-                      style: TextStyle(
-                        fontSize: 8,
-                        color: colors.danger,
-                        letterSpacing: 1,
-                        fontFamily: kMono,
-                      ),
-                    ),
-                ],
-              ),
-            ],
+        // Honest freshness: how old the newest vehicle fix is right now, no
+        // matter which channel delivered it. A stalled feed keeps counting up.
+        final feedAge =
+            stats.feedTimestamp > 0 ? stats.ageSecAt(DateTime.now()) : -1;
+        final ageColor = feedAge < 0
+            ? colors.textDim
+            : (feedAge > 150 ? colors.danger : colors.textDim);
+
+        // The age is a live clock, not a value that changes only on refresh, so
+        // re-render this header once a second while the map is visible.
+        return TimerBuilder(
+          interval: const Duration(seconds: 1),
+          builder: (context) => _buildBody(
+            context,
+            colors,
+            status,
+            stats,
+            updated,
+            stale,
+            label,
+            feedAge,
+            ageColor,
           ),
         );
       },
+    );
+  }
+
+  Widget _buildBody(
+    BuildContext context,
+    ZetColors colors,
+    FeedStatus status,
+    FeedStats stats,
+    DateTime? updated,
+    bool stale,
+    String label,
+    int feedAge,
+    Color ageColor,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.bg.withValues(alpha: 0.86),
+        border: Border(bottom: BorderSide(color: colors.border)),
+      ),
+      padding: const EdgeInsets.fromLTRB(10, 5, 4, 5),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              PulseDot(
+                size: 6,
+                color: stale ? colors.danger : colors.accent,
+                minOpacity: 0.3,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'TRESKA',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: colors.accent,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.4,
+                  fontFamily: kMono,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: colors.textDim,
+                    letterSpacing: 0.4,
+                    fontFamily: kMono,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              if (!status.gps) _GpsChip(onTap: feed.retryLocation),
+              _ThemeButton(controller: themeController),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Dijagnostika',
+                iconSize: 18,
+                color: colors.textDim,
+                onPressed: () => showDiagnostics(context, feed),
+                icon: const Icon(Icons.info_outline),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Text(
+                updated == null ? '—' : hhmmss(updated),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: stale ? colors.danger : colors.textHi,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                  fontFamily: kMono,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 8),
+              _FeedAgeChip(
+                ageSec: feedAge,
+                streaming: stats.streaming,
+                color: ageColor,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  status.staticReady
+                      ? '${stats.vehiclesTram}T · ${stats.vehiclesBus}B'
+                          ' · RT ${stats.rtArrivals}'
+                          ' · ≈ ${stats.estimatedArrivals}'
+                          ' · ~ ${stats.scheduledArrivals}'
+                      : status.loading,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: colors.textDim,
+                    letterSpacing: 0.2,
+                    fontFamily: kMono,
+                  ),
+                ),
+              ),
+              if (stale && updated != null)
+                Text(
+                  'ZASTARJELO',
+                  style: TextStyle(
+                    fontSize: 8,
+                    color: colors.danger,
+                    letterSpacing: 1,
+                    fontFamily: kMono,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedAgeChip extends StatelessWidget {
+  final int ageSec;
+  final bool streaming;
+  final Color color;
+
+  const _FeedAgeChip({
+    required this.ageSec,
+    required this.streaming,
+    required this.color,
+  });
+
+  String get _label {
+    if (ageSec < 0) return '—';
+    if (ageSec < 10) return 'SADA';
+    return '${(ageSec / 60).floor().clamp(1, 99)} min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        border: Border.all(color: colors.borderStrong),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            streaming ? '◉' : '○',
+            style: TextStyle(fontSize: 7, color: color),
+          ),
+          const SizedBox(width: 3),
+          Text(
+            _label,
+            style: TextStyle(
+              fontSize: 8,
+              color: color,
+              letterSpacing: 0.6,
+              fontFamily: kMono,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -371,7 +575,6 @@ class _MapHeader extends StatelessWidget {
 class _GpsChip extends StatelessWidget {
   final VoidCallback onTap;
   const _GpsChip({required this.onTap});
-
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
@@ -525,6 +728,29 @@ class _Legend extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             'STAJALIŠTE',
+            style: TextStyle(
+              fontSize: 8,
+              color: colors.textDim,
+              letterSpacing: 0.8,
+              fontFamily: kMono,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: modeColor.withValues(alpha: 0.55),
+                width: 2.2,
+                strokeAlign: BorderSide.strokeAlignOutside,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'PROCJENA',
             style: TextStyle(
               fontSize: 8,
               color: colors.textDim,

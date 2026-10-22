@@ -21,6 +21,11 @@ class VehicleMarkerWidget extends StatelessWidget {
     final color = vehicle.isTram ? colors.tram : colors.bus;
     final label = vehicle.routeShortName;
     final fontSize = label.length > 2 ? 9.0 : (label.length > 1 ? 11.0 : 12.0);
+    // Vehicles ZET never sent a GPS fix for are placed from the timetable.
+    // Dim them and mark the ring so they never read as live positions.
+    final estimated = vehicle.estimated;
+    final badgeColor =
+        estimated ? color.withValues(alpha: 0.55) : color;
 
     return Tooltip(
       message: vehicle.headsign.isEmpty
@@ -40,7 +45,7 @@ class VehicleMarkerWidget extends StatelessWidget {
                   alignment: Alignment.topCenter,
                   child: CustomPaint(
                     size: const Size(14, 9),
-                    painter: _ArrowPainter(color),
+                    painter: _ArrowPainter(badgeColor),
                   ),
                 ),
               ),
@@ -49,10 +54,13 @@ class VehicleMarkerWidget extends StatelessWidget {
               height: 25,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: color,
+                color: badgeColor,
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  width: 1.4,
+                  color: estimated
+                      ? Colors.white.withValues(alpha: 0.35)
+                      : Colors.white.withValues(alpha: 0.85),
+                  width: estimated ? 2.4 : 1.4,
+                  strokeAlign: BorderSide.strokeAlignOutside,
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -68,7 +76,7 @@ class VehicleMarkerWidget extends StatelessWidget {
                 maxLines: 1,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white,
+                  color: Colors.white.withValues(alpha: estimated ? 0.75 : 1),
                   fontSize: fontSize,
                   fontWeight: FontWeight.w900,
                   height: 1,

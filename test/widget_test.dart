@@ -39,7 +39,9 @@ void main() {
       expect(colors, isNotNull);
       expect(colors!.brightness, brightness);
       expect(theme.scaffoldBackgroundColor, colors.bg);
-      expect(colors.tileUrl, contains('cartocdn'));
+      expect(colors.tileUrl, contains(
+          brightness == Brightness.dark ? 'arcgisonline' : 'openstreetmap'));
+      expect(colors.tileAttribution, isNotEmpty);
       expect(colors.accent, isNot(colors.bg));
     }
     // The two themes must actually differ.
@@ -70,5 +72,41 @@ void main() {
 
     expect(find.text('DOLAZI'), findsNothing);
     expect(find.text('~17:40'), findsOneWidget);
+  });
+
+  testWidgets('estimated arrival shows the delay and an approximate time', (
+    tester,
+  ) async {
+    final stop = NearbyStop(
+      stop: const StopInfo(
+        id: '98_1',
+        name: 'Črnomerec',
+        lat: 45.815,
+        lon: 15.934,
+        modes: kModeTram,
+      ),
+      distanceM: 62,
+      arrivals: [
+        Arrival(
+          routeShortName: '17',
+          headsign: 'Prečko',
+          time: now.add(const Duration(minutes: 4)),
+          source: ArrivalSource.estimated,
+          routeType: kRouteTypeTram,
+          delaySec: 180,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(host(
+      StopCard(stop: stop, mode: kModeTram, now: now),
+      Brightness.dark,
+    ));
+    await tester.pump();
+
+    expect(find.text('DOLAZI'), findsNothing);
+    expect(find.text('≈'), findsOneWidget);
+    expect(find.text('+3\''), findsOneWidget);
+    expect(find.text('4'), findsOneWidget);
   });
 }

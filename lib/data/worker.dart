@@ -10,8 +10,10 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'feed_engine.dart';
+import 'gtfs_rt.dart';
 import 'gtfs_static.dart';
 import 'models.dart';
+import 'rt_socket.dart';
 
 const String _staticUrl = 'https://zet.hr/gtfs-scheduled/latest';
 const String _rtUrl = 'https://zet.hr/gtfs-rt-protobuf';
@@ -81,8 +83,17 @@ void zetWorkerMain(SendPort handshake) {
   var refreshInFlight = false;
   DateTime? lastStaticAttempt;
 
-  void sendStatic(WorkerStaticReady result) => handshake.send(result);
+  // ── Streaming realtime ────────────────────────────────────────────────────
+  // The relay pushes each new feed the moment ZET produces it; the UI isolates
+  // never see the socket, they only get the joined snapshot.
+  RtFeed? lastWireFeed;
+  DateTime? lastPushAt;
+  String rtChannel = '';
+  WorkerRefresh? lastRefresh;
+  RtSocket? socket;
 
+  void sendStatic(WorkerStaticReady result) => handshake.send(result);
+  
   Future<void> downloadStatic() async {
     final tmp = File('$zipPath.tmp');
     if (await tmp.exists()) {
@@ -252,11 +263,22 @@ void zetWorkerMain(SendPort handshake) {
       final errors = StringBuffer();
       if (staticWarning.isNotEmpty) errors.write(staticWarning);
 
+      // Vehicles come from the streaming relay when it is live (newest fix,
+      // ~10 s cadence). Stop predictions (StopTimeUpdate) are not part of that
+      // stream, so the REST feed still supplies them; it is fetched every
+      // refresh and merged in by the engine.
+      final pushed = lastWireFeed != null &&
+          lastPushAt != null &&
+          DateTime.now().difference(lastPushAt!) < const Duration(seconds: 45);
+
       final rtBytes = await fetchRealtime(errors);
+      if (rtBytes != null) rtChannel = pushed ? 'WS+REST' : 'REST';
+
       final snapshot = engine!.refresh(
         lat: message.lat,
         lon: message.lon,
         rtBytes: rtBytes,
+        rtFeed: pushed ? lastWireFeed : null,
         now: DateTime.now(),
       );
 
@@ -270,8 +292,15 @@ void zetWorkerMain(SendPort handshake) {
             : '$error | $staticWarning';
       }
 
+      final streaming = pushed || socket?.connected == true;
+      final withChannel = snapshot.copyWith(
+        stats: snapshot.stats.copyWith(
+          streaming: streaming,
+        ),
+      );
+
       handshake.send(WorkerFeed(
-        error.isEmpty ? snapshot : snapshot.copyWith(error: error),
+        error.isEmpty ? withChannel : withChannel.copyWith(error: error),
       ));
     } catch (e) {
       handshake.send(WorkerFeed(FeedSnapshot(
@@ -283,11 +312,32 @@ void zetWorkerMain(SendPort handshake) {
     }
   }
 
+  void startSocket() {
+    if (socket != null) return;
+    socket = RtSocket(
+      onError: (e) => rtChannel = rtChannel.isEmpty ? e : rtChannel,
+      onFeed: (feed, receivedAt) async {
+        lastWireFeed = feed;
+        lastPushAt = receivedAt;
+        rtChannel = 'WS';
+        // Recompute immediately when a static feed is loaded; otherwise the
+        // pending refresh will pick the feed up.
+        final pending = lastRefresh;
+        if (pending != null && staticData != null && !refreshInFlight) {
+          await doRefresh(pending);
+        }
+      },
+    );
+    socket!.start();
+  }
+
   inbox.listen((message) {
     if (message is WorkerInit) {
       zipPath = '${message.cacheDir}/gtfs_static.zip';
       ensureStatic(force: false);
+      startSocket();
     } else if (message is WorkerRefresh) {
+      lastRefresh = message;
       doRefresh(message);
     } else if (message is WorkerInvalidateStatic) {
       if (zipPath.isEmpty) return;

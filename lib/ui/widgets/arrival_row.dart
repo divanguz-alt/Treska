@@ -21,12 +21,20 @@ class ArrivalRowWidget extends StatelessWidget {
     final colors = context.zet;
     final seconds = arrival.secondsUntil(now);
     final isRealtime = arrival.isRealtime;
-    final routeColor = isRealtime ? colors.textHi : colors.textDim;
-    final headsignColor = isRealtime ? colors.text : colors.textDim;
+    final isEstimated = arrival.isEstimated;
+
+    final routeColor = isRealtime
+        ? colors.textHi
+        : (isEstimated ? colors.accent : colors.textDim);
+    final headsignColor = isRealtime
+        ? colors.text
+        : (isEstimated
+            ? colors.text.withValues(alpha: 0.86)
+            : colors.textDim);
 
     return Semantics(
       label: '${arrival.routeShortName} prema ${arrival.headsign}, '
-          '${_spokenTime(seconds, isRealtime)}',
+          '${_spokenTime(seconds, arrival.source)}',
       excludeSemantics: true,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -77,9 +85,10 @@ class ArrivalRowWidget extends StatelessWidget {
             const SizedBox(width: 8),
             _TimeLabel(
               seconds: seconds,
-              realtime: isRealtime,
+              source: arrival.source,
               minutes: arrival.minutesUntil(now),
               time: arrival.time,
+              delaySec: arrival.delaySec,
             ),
           ],
         ),
@@ -87,30 +96,36 @@ class ArrivalRowWidget extends StatelessWidget {
     );
   }
 
-  String _spokenTime(int seconds, bool realtime) {
+  String _spokenTime(int seconds, ArrivalSource source) {
+    final realtime = source == ArrivalSource.realtime;
+    final estimate = source == ArrivalSource.estimated ? ', procjena' : '';
     if (seconds < 60) return realtime ? 'dolazi' : 'sada';
-    return 'za ${(seconds / 60).ceil()} minuta';
+    return 'za ${(seconds / 60).ceil()} minuta$estimate';
   }
 }
 
 class _TimeLabel extends StatelessWidget {
   final int seconds;
   final int minutes;
-  final bool realtime;
+  final ArrivalSource source;
   final DateTime time;
+  final int delaySec;
 
   const _TimeLabel({
     required this.seconds,
-    required this.realtime,
+    required this.source,
     required this.minutes,
     required this.time,
+    required this.delaySec,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
+    final realtime = source == ArrivalSource.realtime;
+    final estimated = source == ArrivalSource.estimated;
 
-    if (seconds < 60 && realtime) {
+    if (realtime && seconds < 60) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -130,7 +145,7 @@ class _TimeLabel extends StatelessWidget {
       );
     }
 
-    if (seconds < 90 && !realtime) {
+    if (!realtime && !estimated && seconds < 90) {
       return Text(
         'SADA',
         style: TextStyle(
@@ -143,7 +158,7 @@ class _TimeLabel extends StatelessWidget {
       );
     }
 
-    if (!realtime) {
+    if (!realtime && !estimated) {
       return Text(
         '~${hhmm(time)}',
         style: TextStyle(
@@ -156,17 +171,37 @@ class _TimeLabel extends StatelessWidget {
       );
     }
 
+    final delayMin = (delaySec.abs() / 60).round();
+    final showDelay = delayMin >= 1;
+    final delayColor = delaySec > 0 ? colors.danger : colors.ok;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        if (showDelay) ...[
+          _DelayChip(
+            label: '${delaySec > 0 ? '+' : '-'}$delayMin\'',
+            color: delayColor,
+          ),
+          const SizedBox(width: 5),
+        ],
+        if (estimated)
+          Text(
+            '≈',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: colors.accentDim,
+              fontFamily: kMono,
+            ),
+          ),
         Text(
           '$minutes',
           style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w900,
-            color: colors.textHi,
+            color: estimated ? colors.accent : colors.textHi,
             height: 1,
             fontFamily: kMono,
           ),
@@ -182,6 +217,35 @@ class _TimeLabel extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _DelayChip extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _DelayChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(2),
+        border: Border.all(color: color.withValues(alpha: 0.45), width: 0.5),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 8,
+          fontWeight: FontWeight.w700,
+          color: color,
+          height: 1,
+          fontFamily: kMono,
+        ),
+      ),
     );
   }
 }
