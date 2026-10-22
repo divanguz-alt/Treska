@@ -71,8 +71,7 @@ class ArrivalRowWidget extends StatelessWidget {
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
                         color: colors.text,
-                        fontFamily: kMono,
-                      ),
+                        ),
                     ),
                     const SizedBox(height: 2),
                     _StatusLine(group: group, now: now),
@@ -129,7 +128,6 @@ class _RouteBadge extends StatelessWidget {
           fontWeight: FontWeight.w700,
           color: ink,
           height: 1,
-          fontFamily: kMono,
           fontFeatures: kTabular,
         ),
       ),
@@ -164,8 +162,7 @@ class _StatusLine extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               color: colors.textDim,
-              fontFamily: kMono,
-            ),
+              ),
           ),
         ),
         if (source != ArrivalSource.scheduled && delaySec != 0) ...[
@@ -178,8 +175,7 @@ class _StatusLine extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               color: delaySec > 60 ? colors.warn : colors.ok,
-              fontFamily: kMono,
-            ),
+              ),
           ),
         ],
       ],
@@ -252,57 +248,65 @@ class _EtaBlock extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (realtime && seconds <= 45)
-          const _ArrivingPill()
-        else if (!realtime && !estimated)
-          Text(
-            hhmm(next.time),
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w600,
-              color: colors.textDim,
-              height: 1.05,
-              fontFamily: kMono,
-              fontFeatures: kTabular,
-            ),
-          )
-        else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+        // Handoff: `min-width:72px` — the ETA column keeps a steady width so
+        // short values ("4 min") and the „Stiže“ pill line up down the list.
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 72),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (estimated)
+              if (realtime && seconds <= 45)
+                const _ArrivingPill()
+              else if (!realtime && !estimated)
                 Text(
-                  '≈',
+                  hhmm(next.time),
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w600,
                     color: colors.textDim,
-                    fontFamily: kMono,
+                    height: 1.05,
+                    fontFeatures: kTabular,
                   ),
+                )
+              else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (estimated)
+                      Text(
+                        '≈',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: colors.textDim,
+                        ),
+                      ),
+                    Text(
+                      '${next.minutesUntil(now)}',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: colors.text,
+                        height: 1.05,
+                        fontFeatures: kTabular,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      'min',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colors.textDim,
+                        fontFeatures: kTabular,
+                      ),
+                    ),
+                  ],
                 ),
-              Text(
-                '${next.minutesUntil(now)}',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                  color: colors.text,
-                  height: 1.05,
-                  fontFamily: kMono,
-                  fontFeatures: kTabular,
-                ),
-              ),
-              const SizedBox(width: 2),
-              Text(
-                'min',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: colors.textDim,
-                  fontFamily: kMono,
-                ),
-              ),
             ],
           ),
+        ),
         if (untilNext.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 2),
@@ -311,7 +315,6 @@ class _EtaBlock extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 color: colors.textDim,
-                fontFamily: kMono,
                 fontFeatures: kTabular,
               ),
             ),
@@ -346,8 +349,7 @@ class _ArrivingPill extends StatelessWidget {
               fontSize: 14,
               fontWeight: FontWeight.w500,
               color: colors.onLiveContainer,
-              fontFamily: kMono,
-            ),
+              ),
           ),
         ],
       ),

@@ -70,8 +70,7 @@ class _DiagnosticsSheet extends StatelessWidget {
                 color: colors.accent,
                 letterSpacing: 1.6,
                 fontWeight: FontWeight.w700,
-                fontFamily: kMono,
-              ),
+                ),
             ),
             const SizedBox(height: 12),
             Flexible(
@@ -92,8 +91,7 @@ class _DiagnosticsSheet extends StatelessWidget {
                                   fontSize: 9,
                                   color: colors.textDim,
                                   letterSpacing: 0.8,
-                                  fontFamily: kMono,
-                                ),
+                                  ),
                               ),
                             ),
                             Expanded(
@@ -102,7 +100,6 @@ class _DiagnosticsSheet extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: colors.text,
-                                  fontFamily: kMono,
                                   height: 1.3,
                                 ),
                               ),
@@ -180,7 +177,6 @@ class _SheetButton extends StatelessWidget {
         style: const TextStyle(
           fontSize: 9,
           letterSpacing: 1,
-          fontFamily: kMono,
           fontWeight: FontWeight.w700,
         ),
       ),

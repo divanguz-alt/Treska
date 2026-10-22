@@ -293,8 +293,14 @@ class ZetColors extends ThemeExtension<ZetColors> {
   }
 }
 
-/// Monospace is the visual identity of the app (LED board / timetable).
-const String kMono = 'monospace';
+/// No custom font family: the app inherits the device's own UI font.
+///
+/// The handoff specifies Roboto Flex, which is what Android already ships as the
+/// system font, and its `tabular-nums` is what stops ticking numbers from
+/// jittering. Hardcoding a family (or 'monospace') would override the user's
+/// device font and break that match, so text styles leave the family alone and
+/// only set [kTabular].
+const String? kFontFamily = null;
 
 /// Tabular figures for every number that ticks (ETA, feed age, clock times) so
 /// the layout never jitters as digits change width.
@@ -339,7 +345,6 @@ ThemeData buildZetTheme(Brightness brightness) {
     scaffoldBackgroundColor: c.bg,
     canvasColor: c.bg,
     splashFactory: InkSparkle.splashFactory,
-    fontFamily: kMono,
     visualDensity: VisualDensity.standard,
   );
 
@@ -348,7 +353,6 @@ ThemeData buildZetTheme(Brightness brightness) {
     textTheme: base.textTheme.apply(
       bodyColor: c.text,
       displayColor: c.text,
-      fontFamily: kMono,
     ),
     iconTheme: IconThemeData(color: c.textDim, size: 24),
     dividerTheme:
@@ -369,11 +373,11 @@ ThemeData buildZetTheme(Brightness brightness) {
       labelStyle: const TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w500,
-        fontFamily: kMono,
+       
       ),
       unselectedLabelStyle: const TextStyle(
         fontSize: 14,
-        fontFamily: kMono,
+       
       ),
     ),
     bottomSheetTheme: BottomSheetThemeData(
@@ -397,7 +401,7 @@ ThemeData buildZetTheme(Brightness brightness) {
     snackBarTheme: SnackBarThemeData(
       backgroundColor: c.inverse,
       contentTextStyle:
-          TextStyle(color: c.onInverse, fontFamily: kMono, fontSize: 14),
+          TextStyle(color: c.onInverse, fontSize: 14),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(ZetRadius.chip),
@@ -406,7 +410,7 @@ ThemeData buildZetTheme(Brightness brightness) {
     popupMenuTheme: PopupMenuThemeData(
       color: c.panel,
       surfaceTintColor: Colors.transparent,
-      textStyle: TextStyle(color: c.text, fontFamily: kMono, fontSize: 14),
+      textStyle: TextStyle(color: c.text, fontSize: 14),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(ZetRadius.zoom),
       ),
@@ -419,7 +423,7 @@ ThemeData buildZetTheme(Brightness brightness) {
         fontSize: 14,
         fontWeight: FontWeight.w500,
         color: c.text,
-        fontFamily: kMono,
+       
       ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(ZetRadius.chip),
@@ -432,7 +436,7 @@ ThemeData buildZetTheme(Brightness brightness) {
         textStyle: const TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
-          fontFamily: kMono,
+         
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ZetRadius.pill),
@@ -446,7 +450,7 @@ ThemeData buildZetTheme(Brightness brightness) {
         textStyle: const TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
-          fontFamily: kMono,
+         
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ZetRadius.pill),
@@ -456,7 +460,7 @@ ThemeData buildZetTheme(Brightness brightness) {
     segmentedButtonTheme: SegmentedButtonThemeData(
       style: ButtonStyle(
         textStyle: const WidgetStatePropertyAll(
-          TextStyle(fontSize: 14, fontFamily: kMono),
+          TextStyle(fontSize: 14),
         ),
         backgroundColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)

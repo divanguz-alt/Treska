@@ -28,11 +28,13 @@ class StopHeader extends StatelessWidget {
     final walkMin = (stop.distanceM / 80).round().clamp(1, 99);
 
     return Padding(
+      // Handoff: `padding: 0 12px 10px 24px` — the stop name lines up with the
+      // list's 24 dp gutter, not the rows' 12 dp one.
       padding: const EdgeInsets.fromLTRB(
-        ZetSpace.md,
+        ZetSpace.sheet,
         0,
-        ZetSpace.sm,
-        ZetSpace.sm,
+        ZetSpace.md,
+        10,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -51,8 +53,7 @@ class StopHeader extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                     color: colors.text,
                     height: 1.15,
-                    fontFamily: kMono,
-                  ),
+                    ),
                 ),
                 const SizedBox(height: 4),
                 Row(
@@ -65,8 +66,7 @@ class StopHeader extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 14,
                         color: colors.textDim,
-                        fontFamily: kMono,
-                      ),
+                        ),
                     ),
                   ],
                 ),
@@ -116,8 +116,7 @@ class StopBoard extends StatelessWidget {
           style: TextStyle(
             fontSize: 14,
             color: colors.textDim,
-            fontFamily: kMono,
-          ),
+            ),
         ),
       );
     }

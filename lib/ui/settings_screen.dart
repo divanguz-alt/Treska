@@ -152,8 +152,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
             fontSize: 22,
             fontWeight: FontWeight.w600,
             color: colors.text,
-            fontFamily: kMono,
-          ),
+            ),
         ),
       ),
       body: ListView(
@@ -217,8 +216,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     fontSize: 13,
                     height: 1.4,
                     color: colors.textDim,
-                    fontFamily: kMono,
-                  ),
+                    ),
                 ),
               ],
             ),
@@ -277,8 +275,7 @@ class _SectionLabel extends StatelessWidget {
           fontSize: 14,
           fontWeight: FontWeight.w500,
           color: colors.primary,
-          fontFamily: kMono,
-        ),
+          ),
       ),
     );
   }
@@ -302,8 +299,7 @@ class _ThemeRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 16,
                 color: colors.text,
-                fontFamily: kMono,
-              ),
+                ),
             ),
             const SizedBox(height: ZetSpace.md),
             SegmentedButton<ThemeMode>(
@@ -356,8 +352,7 @@ class _RadiusRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 16,
                 color: colors.text,
-                fontFamily: kMono,
-              ),
+                ),
             ),
             const SizedBox(height: 2),
             Text(
@@ -365,8 +360,7 @@ class _RadiusRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 color: colors.textDim,
-                fontFamily: kMono,
-              ),
+                ),
             ),
             const SizedBox(height: ZetSpace.md),
             SegmentedButton<double>(
@@ -411,8 +405,7 @@ class _InfoRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 color: colors.textDim,
-                fontFamily: kMono,
-              ),
+                ),
             ),
           ),
           Expanded(
@@ -421,7 +414,6 @@ class _InfoRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 color: colors.text,
-                fontFamily: kMono,
                 fontFeatures: kTabular,
               ),
             ),
@@ -494,8 +486,7 @@ class _UpdateBody extends StatelessWidget {
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                     color: available ? colors.primary : colors.text,
-                    fontFamily: kMono,
-                  ),
+                    ),
                 ),
               ),
               if (available && release != null && release.apkSize > 0)
@@ -504,8 +495,7 @@ class _UpdateBody extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     color: colors.textDim,
-                    fontFamily: kMono,
-                  ),
+                    ),
                 ),
             ],
           ),
@@ -517,8 +507,7 @@ class _UpdateBody extends StatelessWidget {
                 fontSize: 13,
                 height: 1.35,
                 color: colors.danger,
-                fontFamily: kMono,
-              ),
+                ),
             ),
           ],
           if (available && release != null) ...[
@@ -533,8 +522,7 @@ class _UpdateBody extends StatelessWidget {
                       fontSize: 13,
                       height: 1.4,
                       color: colors.text,
-                      fontFamily: kMono,
-                    ),
+                      ),
                   ),
                 ),
               ),
@@ -555,8 +543,7 @@ class _UpdateBody extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   color: colors.textDim,
-                  fontFamily: kMono,
-                ),
+                  ),
               ),
             ] else
               Row(
@@ -596,8 +583,7 @@ class _UpdateBody extends StatelessWidget {
                 fontSize: 13,
                 height: 1.35,
                 color: colors.textDim,
-                fontFamily: kMono,
-              ),
+                ),
             ),
           ],
           if (release != null) ...[
@@ -607,8 +593,7 @@ class _UpdateBody extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 color: colors.textDim,
-                fontFamily: kMono,
-              ),
+                ),
             ),
           ],
         ],

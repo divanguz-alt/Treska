@@ -233,7 +233,6 @@ class _ModeChip extends StatelessWidget {
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                   color: selected ? colors.onPrimaryContainer : colors.text,
-                  fontFamily: kMono,
                   fontFeatures: kTabular,
                 ),
               ),
@@ -282,8 +281,7 @@ class _StopChip extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     color: colors.text,
-                    fontFamily: kMono,
-                  ),
+                    ),
                 ),
               ),
               const SizedBox(width: 6),
@@ -292,7 +290,6 @@ class _StopChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   color: colors.textDim,
-                  fontFamily: kMono,
                   fontFeatures: kTabular,
                 ),
               ),
@@ -370,7 +367,6 @@ class _BoardLegend extends StatelessWidget {
     final colors = context.zet;
     final style = TextStyle(
       fontSize: 12,
-      fontFamily: kMono,
       color: colors.textDim,
     );
 
@@ -481,7 +477,6 @@ class _ErrorBanner extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     color: colors.danger,
-                    fontFamily: kMono,
                     height: 1.3,
                   ),
                 ),
@@ -534,7 +529,6 @@ class _EmptyState extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               color: colors.textDim,
-              fontFamily: kMono,
               height: 1.5,
             ),
           ),
@@ -546,8 +540,7 @@ class _EmptyState extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               color: colors.textDim,
-              fontFamily: kMono,
-            ),
+              ),
           ),
         ],
       ),
@@ -591,7 +584,6 @@ class _LoadingState extends StatelessWidget {
                 color: status.staticError.isEmpty
                     ? colors.textDim
                     : colors.danger,
-                fontFamily: kMono,
                 height: 1.5,
               ),
             ),
@@ -603,8 +595,7 @@ class _LoadingState extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   color: colors.textDim,
-                  fontFamily: kMono,
-                ),
+                  ),
               ),
             const SizedBox(height: ZetSpace.lg),
             if (status.staticError.isNotEmpty)

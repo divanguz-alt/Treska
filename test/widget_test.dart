@@ -65,6 +65,24 @@ void main() {
       expect(ZetColors.light.primary, ZetPalette.lightPrimary);
       expect(ZetPalette.lightPrimary, const Color(0xFF1D5AB0));
     });
+
+    test('inherits the device font instead of hardcoding one', () {
+      for (final brightness in Brightness.values) {
+        final theme = buildZetTheme(brightness);
+        // The handoff's Roboto Flex is Android's system font, so no family is
+        // pinned by us: text resolves to whatever the platform provides
+        // (Roboto in the test environment) rather than a bundled face.
+        for (final style in [
+          theme.textTheme.bodyMedium,
+          theme.textTheme.titleLarge,
+        ]) {
+          expect(style?.fontFamily, isNot('monospace'));
+          expect(style?.fontFamily, anyOf(isNull, 'Roboto'));
+        }
+        // Ticking numbers still get tabular figures so they don't jitter.
+        expect(kTabular, isNotEmpty);
+      }
+    });
   });
 
   group('groupArrivals', () {

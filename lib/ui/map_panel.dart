@@ -106,6 +106,18 @@ class _MapPanelState extends State<MapPanel> {
     _map.move(camera.center, next);
   }
 
+  /// Starting zoom that keeps the whole nearby radius visible above the sheet.
+  ///
+  /// At this latitude one tile-pixel is ~3.5 m at zoom 15, so an 800 m circle
+  /// needs more room than a phone screen shows once the sheet covers the lower
+  /// half. Each radius step moves one zoom level: 400 m reads at 15, the default
+  /// 800 m at 14, and 1200 m at 13.
+  static double _zoomForRadius(double radiusM) {
+    if (radiusM <= 400) return 15;
+    if (radiusM >= 1200) return 13;
+    return 14;
+  }
+
   List<CircleMarker> _circlesFor(
       BuildContext context, List<StopInfo> all, int mode) {
     final brightness = Theme.of(context).brightness;
@@ -162,7 +174,12 @@ class _MapPanelState extends State<MapPanel> {
                 mapController: _map,
                 options: MapOptions(
                   initialCenter: center,
-                  initialZoom: 15,
+                  // The handoff's note asks for a starting zoom far enough out
+                  // that the whole nearby-stop radius is on screen, which its
+                  // code's fixed `15` contradicted. Pick the zoom from the
+                  // radius setting instead: 800 m reads well at 14, and the
+                  // wider/narrower settings step with it.
+                  initialZoom: _zoomForRadius(widget.settings.radiusM),
                   minZoom: 11,
                   maxZoom: 18,
                   backgroundColor: colors.bg,
@@ -316,8 +333,7 @@ class _Attribution extends StatelessWidget {
             style: TextStyle(
               fontSize: 9,
               color: colors.textDim,
-              fontFamily: kMono,
-            ),
+              ),
           ),
         ),
       ),
@@ -353,8 +369,7 @@ class _TileErrorChip extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 color: colors.danger,
-                fontFamily: kMono,
-              ),
+                ),
             ),
             const SizedBox(width: 6),
             Icon(Icons.refresh, size: 14, color: colors.danger),
@@ -442,8 +457,7 @@ class _SearchBar extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 16,
                       color: colors.textDim,
-                      fontFamily: kMono,
-                    ),
+                      ),
                   ),
                 ),
               ),
@@ -511,8 +525,7 @@ class _LiveChip extends StatelessWidget {
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                   color: colors.text,
-                  fontFamily: kMono,
-                ),
+                  ),
               ),
               const SizedBox(width: ZetSpace.sm),
               Text(
@@ -520,7 +533,6 @@ class _LiveChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   color: colors.textDim,
-                  fontFamily: kMono,
                   fontFeatures: kTabular,
                 ),
               ),
@@ -592,7 +604,9 @@ class _LocationFab extends StatelessWidget {
     return Tooltip(
       message: 'Centriraj na moju lokaciju',
       child: Material(
-        color: following ? colors.primaryContainer : colors.panel,
+        // Handoff: a tonal FAB — primary container at rest, primary once the
+        // map is following the user.
+        color: following ? colors.primary : colors.primaryContainer,
         elevation: 3,
         borderRadius: BorderRadius.circular(ZetRadius.fab),
         shadowColor: Colors.black.withValues(alpha: 0.25),
@@ -606,8 +620,8 @@ class _LocationFab extends StatelessWidget {
               following ? Icons.my_location : Icons.location_searching,
               size: 24,
               color: following
-                  ? colors.onPrimaryContainer
-                  : colors.text,
+                  ? colors.onPrimary
+                  : colors.onPrimaryContainer,
             ),
           ),
         ),

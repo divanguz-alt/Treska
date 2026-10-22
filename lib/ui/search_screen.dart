@@ -112,8 +112,7 @@ class _SearchScreenState extends State<_SearchScreen> {
                             fontSize: 14,
                             fontWeight: FontWeight.w500,
                             color: colors.primary,
-                            fontFamily: kMono,
-                          ),
+                            ),
                         ),
                       ),
                       if (results.isEmpty)
@@ -127,8 +126,7 @@ class _SearchScreenState extends State<_SearchScreen> {
                             style: TextStyle(
                               fontSize: 14,
                               color: colors.textDim,
-                              fontFamily: kMono,
-                            ),
+                              ),
                           ),
                         )
                       else
@@ -243,16 +241,14 @@ class _SearchField extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 16,
                   color: colors.text,
-                  fontFamily: kMono,
-                ),
+                  ),
                 decoration: InputDecoration(
                   border: InputBorder.none,
                   hintText: 'Traži stanicu ili liniju',
                   hintStyle: TextStyle(
                     fontSize: 16,
                     color: colors.textDim,
-                    fontFamily: kMono,
-                  ),
+                    ),
                 ),
               ),
             ),
@@ -324,8 +320,7 @@ class _StopResult extends StatelessWidget {
         style: TextStyle(
           fontSize: 16,
           color: colors.text,
-          fontFamily: kMono,
-        ),
+          ),
       ),
       subtitle: lineLabel == null
           ? null
@@ -336,8 +331,7 @@ class _StopResult extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 color: colors.textDim,
-                fontFamily: kMono,
-              ),
+                ),
             ),
       trailing: distanceM.isFinite
           ? Text(
@@ -345,7 +339,6 @@ class _StopResult extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 color: colors.textDim,
-                fontFamily: kMono,
                 fontFeatures: kTabular,
               ),
             )

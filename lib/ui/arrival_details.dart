@@ -111,8 +111,7 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                           fontSize: 20,
                           fontWeight: FontWeight.w700,
                           color: badgeInk,
-                          fontFamily: kMono,
-                        ),
+                          ),
                       ),
                     ),
                     const SizedBox(width: ZetSpace.md),
@@ -130,8 +129,7 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                               fontWeight: FontWeight.w600,
                               color: colors.text,
                               height: 1.15,
-                              fontFamily: kMono,
-                            ),
+                              ),
                           ),
                           const SizedBox(height: 2),
                           Text(
@@ -139,8 +137,7 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                             style: TextStyle(
                               fontSize: 13,
                               color: colors.textDim,
-                              fontFamily: kMono,
-                            ),
+                              ),
                           ),
                         ],
                       ),
@@ -168,8 +165,7 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                         style: TextStyle(
                           fontSize: 13,
                           color: colors.textDim,
-                          fontFamily: kMono,
-                        ),
+                          ),
                       ),
                       const SizedBox(height: 6),
                       if (live && seconds <= 45)
@@ -180,8 +176,7 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                             fontWeight: FontWeight.w600,
                             color: colors.live,
                             height: 1,
-                            fontFamily: kMono,
-                          ),
+                            ),
                         )
                       else
                         Row(
@@ -194,8 +189,7 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                                 style: TextStyle(
                                   fontSize: 22,
                                   color: colors.textDim,
-                                  fontFamily: kMono,
-                                ),
+                                  ),
                               ),
                             Text(
                               '${next.minutesUntil(now)}',
@@ -204,7 +198,6 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                                 fontWeight: FontWeight.w600,
                                 color: colors.text,
                                 height: 1,
-                                fontFamily: kMono,
                                 fontFeatures: kTabular,
                               ),
                             ),
@@ -214,8 +207,7 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                               style: TextStyle(
                                 fontSize: 20,
                                 color: colors.textDim,
-                                fontFamily: kMono,
-                              ),
+                                ),
                             ),
                           ],
                         ),
@@ -230,8 +222,7 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                                   ? colors.warn
                                   : colors.ok)
                               : colors.textDim,
-                          fontFamily: kMono,
-                        ),
+                          ),
                       ),
                     ],
                   ),
@@ -266,8 +257,7 @@ class _ArrivalDetailsState extends State<_ArrivalDetails> {
                     style: TextStyle(
                       fontSize: 13,
                       color: colors.textDim,
-                      fontFamily: kMono,
-                    ),
+                      ),
                   ),
                 ),
             ],
@@ -417,8 +407,7 @@ class _TimelineRow extends StatelessWidget {
                             fontWeight:
                                 isMine ? FontWeight.w600 : FontWeight.w400,
                             color: passed ? colors.textDim : colors.text,
-                            fontFamily: kMono,
-                          ),
+                            ),
                         ),
                       ),
                       const SizedBox(width: ZetSpace.sm),
@@ -427,7 +416,6 @@ class _TimelineRow extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 14,
                           color: colors.textDim,
-                          fontFamily: kMono,
                           fontFeatures: kTabular,
                         ),
                       ),
@@ -452,8 +440,7 @@ class _TimelineRow extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 12,
                               color: color,
-                              fontFamily: kMono,
-                            ),
+                              ),
                           ),
                         ],
                       ),
