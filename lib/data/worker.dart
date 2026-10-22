@@ -1,0 +1,303 @@
+// Background worker isolate: static GTFS download/parse + realtime polling.
+//
+// The UI isolate never sees the 112 MB stop_times file, never parses protobuf
+// and never sorts schedules. It only receives immutable [FeedSnapshot]s.
+import 'dart:async';
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+
+import 'feed_engine.dart';
+import 'gtfs_static.dart';
+import 'models.dart';
+
+const String _staticUrl = 'https://zet.hr/gtfs-scheduled/latest';
+const String _rtUrl = 'https://zet.hr/gtfs-rt-protobuf';
+const String _userAgent = 'Treska/2.0 (Flutter; ZET timetable)';
+
+const Duration _rtTimeout = Duration(seconds: 12);
+const Duration _staticTimeout = Duration(minutes: 3);
+const Duration _staticMaxAge = Duration(hours: 12);
+const Duration _staticReloadAfter = Duration(hours: 4);
+
+// ── Messages ────────────────────────────────────────────────────────────────
+
+class WorkerInit {
+  final String cacheDir;
+  const WorkerInit(this.cacheDir);
+}
+
+class WorkerRefresh {
+  final double lat;
+  final double lon;
+  const WorkerRefresh(this.lat, this.lon);
+}
+
+class WorkerInvalidateStatic {
+  const WorkerInvalidateStatic();
+}
+
+class WorkerHello {
+  final SendPort port;
+  const WorkerHello(this.port);
+}
+
+class WorkerStaticReady {
+  final bool ok;
+  final String error;
+  final List<StopInfo> stops;
+  final int trips;
+  final int parseMs;
+  final bool fromCache;
+
+  const WorkerStaticReady({
+    required this.ok,
+    required this.error,
+    this.stops = const [],
+    this.trips = 0,
+    this.parseMs = 0,
+    this.fromCache = false,
+  });
+}
+
+class WorkerFeed {
+  final FeedSnapshot snapshot;
+  const WorkerFeed(this.snapshot);
+}
+
+/// Entry point. Must be a top-level function.
+void zetWorkerMain(SendPort handshake) {
+  final inbox = ReceivePort();
+  handshake.send(WorkerHello(inbox.sendPort));
+
+  StaticData? staticData;
+  FeedEngine? engine;
+  String zipPath = '';
+  DateTime? loadedAt;
+  String staticWarning = '';
+  var staticLoading = false;
+  var refreshInFlight = false;
+  DateTime? lastStaticAttempt;
+
+  void sendStatic(WorkerStaticReady result) => handshake.send(result);
+
+  Future<void> downloadStatic() async {
+    final tmp = File('$zipPath.tmp');
+    if (await tmp.exists()) {
+      try {
+        await tmp.delete();
+      } catch (_) {}
+    }
+    final request = http.Request('GET', Uri.parse(_staticUrl))
+      ..headers.addAll({
+        'User-Agent': _userAgent,
+        'Accept': 'application/zip,*/*',
+      });
+    final response = await request.send().timeout(_staticTimeout);
+    if (response.statusCode != 200) {
+      throw Exception('HTTP ${response.statusCode}');
+    }
+    final sink = tmp.openWrite();
+    try {
+      await response.stream.pipe(sink).timeout(_staticTimeout);
+    } catch (_) {
+      await sink.close();
+      rethrow;
+    }
+    final length = await tmp.length();
+    if (length < 10000) {
+      await tmp.delete();
+      throw Exception('premali ZIP ($length B)');
+    }
+    await tmp.rename(zipPath);
+  }
+
+  Future<bool> ensureStatic({bool force = false}) async {
+    if (staticLoading) return false;
+    staticLoading = true;
+    lastStaticAttempt = DateTime.now();
+    try {
+      final file = File(zipPath);
+      var needDownload = force;
+      var fromCache = false;
+
+      if (!needDownload && await file.exists()) {
+        final length = await file.length();
+        if (length > 10000) {
+          final age = DateTime.now().difference(await file.lastModified());
+          if (age < _staticMaxAge) {
+            needDownload = false;
+            fromCache = true;
+          } else {
+            needDownload = true;
+          }
+        } else {
+          needDownload = true;
+        }
+      } else if (!needDownload) {
+        needDownload = true;
+      }
+
+      if (needDownload) {
+        try {
+          await downloadStatic();
+          fromCache = false;
+        } catch (e) {
+          if (!await file.exists() || await file.length() < 10000) {
+            sendStatic(WorkerStaticReady(
+              ok: false,
+              error: 'Preuzimanje rasporeda nije uspjelo: $e',
+            ));
+            return false;
+          }
+          staticWarning = 'Keširani raspored (preuzimanje nije uspjelo)';
+          fromCache = true;
+        }
+      }
+
+      final parsed = await parseStaticZip(zipPath, DateTime.now());
+      staticData = parsed;
+      engine = FeedEngine(parsed);
+      loadedAt = DateTime.now();
+      staticWarning = '';
+
+      sendStatic(WorkerStaticReady(
+        ok: true,
+        error: '',
+        stops: [
+          for (final s in parsed.stops)
+            StopInfo(
+              id: s.stopId,
+              name: s.name,
+              lat: s.lat,
+              lon: s.lon,
+              modes: s.modes,
+            ),
+        ],
+        trips: parsed.tripIdx.length,
+        parseMs: parsed.parseMs,
+        fromCache: fromCache,
+      ));
+      return true;
+    } catch (e) {
+      // A corrupt cache must not survive to the next attempt.
+      try {
+        final file = File(zipPath);
+        if (await file.exists() && force) await file.delete();
+      } catch (_) {}
+      sendStatic(WorkerStaticReady(
+        ok: false,
+        error: 'Raspored nije moguće pročitati: $e',
+      ));
+      return false;
+    } finally {
+      staticLoading = false;
+    }
+  }
+
+  Future<Uint8List?> fetchRealtime(StringBuffer errors) async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse(_rtUrl),
+            headers: {
+              'User-Agent': _userAgent,
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache',
+            },
+          )
+          .timeout(_rtTimeout);
+      if (response.statusCode != 200) {
+        errors.write('RT HTTP ${response.statusCode}');
+        return null;
+      }
+      if (response.bodyBytes.length < 100) {
+        errors.write('RT prazan odgovor');
+        return null;
+      }
+      return response.bodyBytes;
+    } catch (e) {
+      errors.write('RT: $e');
+      return null;
+    }
+  }
+
+  Future<void> doRefresh(WorkerRefresh message) async {
+    if (refreshInFlight) return;
+    refreshInFlight = true;
+    try {
+      // Reload the static feed every few hours so service changes show up.
+      if (staticData != null &&
+          loadedAt != null &&
+          DateTime.now().difference(loadedAt!) > _staticReloadAfter &&
+          !staticLoading) {
+        await ensureStatic();
+      }
+
+      if (staticData == null) {
+        final throttle = lastStaticAttempt == null ||
+            DateTime.now().difference(lastStaticAttempt!) > const Duration(seconds: 20);
+        if (throttle) await ensureStatic();
+        if (staticData == null) {
+          handshake.send(WorkerFeed(FeedSnapshot(
+            updatedAt: DateTime.now(),
+            error: 'Raspored još nije učitan',
+          )));
+          return;
+        }
+      }
+
+      final errors = StringBuffer();
+      if (staticWarning.isNotEmpty) errors.write(staticWarning);
+
+      final rtBytes = await fetchRealtime(errors);
+      final snapshot = engine!.refresh(
+        lat: message.lat,
+        lon: message.lon,
+        rtBytes: rtBytes,
+        now: DateTime.now(),
+      );
+
+      var error = snapshot.error;
+      if (rtBytes == null && errors.isNotEmpty) {
+        error = error.isEmpty ? errors.toString() : '$error | $errors';
+      }
+      if (staticWarning.isNotEmpty) {
+        error = error.isEmpty
+            ? staticWarning
+            : '$error | $staticWarning';
+      }
+
+      handshake.send(WorkerFeed(
+        error.isEmpty ? snapshot : snapshot.copyWith(error: error),
+      ));
+    } catch (e) {
+      handshake.send(WorkerFeed(FeedSnapshot(
+        updatedAt: DateTime.now(),
+        error: 'Osvježavanje nije uspjelo: $e',
+      )));
+    } finally {
+      refreshInFlight = false;
+    }
+  }
+
+  inbox.listen((message) {
+    if (message is WorkerInit) {
+      zipPath = '${message.cacheDir}/gtfs_static.zip';
+      ensureStatic(force: false);
+    } else if (message is WorkerRefresh) {
+      doRefresh(message);
+    } else if (message is WorkerInvalidateStatic) {
+      if (zipPath.isEmpty) return;
+      try {
+        final file = File(zipPath);
+        if (file.existsSync()) file.deleteSync();
+      } catch (_) {}
+      staticData = null;
+      engine = null;
+      ensureStatic(force: true);
+    }
+  });
+}
