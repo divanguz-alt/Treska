@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:zet2/core/theme.dart';
 import 'package:zet2/core/tokens.dart';
 import 'package:zet2/data/models.dart';
 import 'package:zet2/settings_controller.dart';
 import 'package:zet2/ui/arrival_group.dart';
+import 'package:zet2/ui/map_panel.dart';
 import 'package:zet2/ui/widgets/arrival_row.dart';
 import 'package:zet2/ui/widgets/stop_card.dart';
 
@@ -234,6 +236,32 @@ void main() {
       final c = SettingsController();
       expect(c.radiusM, 800);
       expect(SettingsController.radiusChoices, [400, 800, 1200]);
+    });
+  });
+
+  group('map geometry', () {
+    // The initial zoom has to keep the whole nearby radius above the sheet, so
+    // each radius step moves a zoom level (farther out as the radius grows).
+    test('initial zoom tracks the nearby radius', () {
+      expect(MapPanel.zoomForRadius(400), 15);
+      expect(MapPanel.zoomForRadius(800), 14);
+      expect(MapPanel.zoomForRadius(1200), 13);
+      // Larger radii must never zoom *in*.
+      expect(MapPanel.zoomForRadius(1200),
+          lessThan(MapPanel.zoomForRadius(400)));
+    });
+
+    // Centring must offset the camera by half the hidden height, or the user
+    // marker ends up behind the bottom sheet.
+    test('sheet offset shifts the camera south by half the hidden height', () {
+      final user = LatLng(45.815, 15.9819);
+      final none = MapPanel.shiftForSheet(user, 14, 0);
+      expect(none.latitude, user.latitude);
+
+      final shifted = MapPanel.shiftForSheet(user, 14, 900);
+      // Moving the camera down means a smaller latitude, same longitude.
+      expect(shifted.latitude, lessThan(user.latitude));
+      expect(shifted.longitude, user.longitude);
     });
   });
 }

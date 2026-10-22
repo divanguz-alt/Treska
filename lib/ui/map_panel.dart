@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -37,12 +39,50 @@ class MapPanel extends StatefulWidget {
     this.bottomInsetPx = 0,
   });
 
+  /// Starting zoom that keeps the whole nearby radius visible above the sheet.
+  ///
+  /// At this latitude one tile-pixel is ~3.5 m at zoom 15, so an 800 m circle
+  /// needs more room than a phone screen shows once the sheet covers the lower
+  /// half. Each radius step moves one zoom level: 400 m reads at 15, the default
+  /// 800 m at 14, and 1200 m at 13.
+  static double zoomForRadius(double radiusM) {
+    if (radiusM <= 400) return 15;
+    if (radiusM >= 1200) return 13;
+    return 14;
+  }
+
+  /// Moves [point] south by half of [hiddenPx] so it renders at the centre of
+  /// the visible map area rather than the centre of the widget.
+  ///
+  /// The map fills the whole screen but the sheet hides its lower part, so a
+  /// user centred on the widget's geometric middle would sit behind the sheet.
+  /// Static and pure so the projection maths is unit-testable.
+  static LatLng shiftForSheet(LatLng point, double zoom, double hiddenPx) {
+    final shiftPx = hiddenPx / 2;
+    if (shiftPx <= 0) return point;
+
+    // Web-Mercator: pixels per degree at this zoom and latitude. One world is
+    // 256 * 2^zoom pixels wide and wraps 360°.
+    final worldPx = 256.0 * math.pow(2, zoom);
+    final latRad = point.latitude * math.pi / 180;
+    final pxPerDegLon = worldPx / 360.0;
+    final pxPerDegLat = pxPerDegLon / math.cos(latRad);
+
+    // Positive latitude is north, so moving the camera down means subtracting.
+    final dLat = shiftPx / pxPerDegLat;
+    return LatLng(point.latitude - dLat, point.longitude);
+  }
+
   @override
   State<MapPanel> createState() => _MapPanelState();
 }
 
 class _MapPanelState extends State<MapPanel> {
   final MapController _map = MapController();
+
+  /// Increments per programmatic move so overlapping camera animations resolve
+  /// in the order they were issued instead of stomping each other.
+  int _moveId = 0;
 
   bool _centered = false;
   bool _followUser = true;
@@ -55,10 +95,39 @@ class _MapPanelState extends State<MapPanel> {
   bool _tilesFailed = false;
   int _tileGeneration = 0;
 
+  /// Set from [MapOptions.onMapReady]. Reading `MapController.camera` before the
+  /// map has been laid out throws, so every camera read is gated on this.
+  bool _mapReady = false;
+
+  /// Pending post-frame re-centre, coalesced so a sheet drag (which rebuilds on
+  /// every animation frame) schedules at most one move per frame instead of
+  /// stacking callbacks.
+  bool _recenterScheduled = false;
+
   @override
   void initState() {
     super.initState();
     widget.feed.position.addListener(_onPosition);
+  }
+
+  @override
+  void didUpdateWidget(MapPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Dragging the sheet changes how much map is visible, so a user who is
+    // being followed has to be re-placed at the centre of the new strip —
+    // raising the sheet moves them down the screen, lowering it moves them up.
+    //
+    // This fires on every sheet animation frame, so it is deferred and
+    // coalesced, and never touches the controller until the map is ready.
+    if (widget.bottomInsetPx == oldWidget.bottomInsetPx || !_followUser) {
+      return;
+    }
+    if (!mounted || !_mapReady || _recenterScheduled) return;
+    _recenterScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _recenterScheduled = false;
+      if (mounted && _mapReady && _followUser) _centerOnUser();
+    });
   }
 
   @override
@@ -70,11 +139,10 @@ class _MapPanelState extends State<MapPanel> {
 
   void _onPosition() {
     final pos = widget.feed.position.value;
-    final center = LatLng(pos.lat, pos.lon);
     if (!_centered && pos.gps) {
       _centered = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _map.move(center, 15);
+        if (mounted && _mapReady) _centerOnUser();
       });
     }
   }
@@ -95,27 +163,49 @@ class _MapPanelState extends State<MapPanel> {
   }
 
   void _recenter() {
-    final pos = widget.feed.position.value;
     setState(() => _followUser = true);
-    _map.move(LatLng(pos.lat, pos.lon), 15);
+    _centerOnUser();
   }
+
+  /// Centres the map on the user, accounting for the bottom sheet.
+  ///
+  /// The map widget fills the whole screen, but the sheet hides its lower part.
+  /// Centring the user on the widget's geometric middle therefore parks them
+  /// behind the sheet — invisible, which defeats the point of following. Shift
+  /// the camera so the user lands in the middle of the *visible* strip: the
+  /// offset is half the hidden height, so the camera centre moves south by
+  /// `hiddenPx / 2`.
+  void _centerOnUser() {
+    if (!_mapReady) return;
+    final pos = widget.feed.position.value;
+    final target = LatLng(pos.lat, pos.lon);
+    final zoom = _map.camera.zoom > 0
+        ? _map.camera.zoom
+        : MapPanel.zoomForRadius(widget.settings.radiusM);
+    _map.move(_shiftForSheet(target, zoom), zoom, id: 'move_${_moveId++}');
+  }
+
+  /// Moves [point] south by half the sheet height, so it renders at the centre
+  /// of the visible map area rather than the centre of the widget.
+  LatLng _shiftForSheet(LatLng point, double zoom) =>
+      MapPanel.shiftForSheet(point, zoom, widget.bottomInsetPx);
 
   void _zoom(double delta) {
+    if (!_mapReady) return;
     final camera = _map.camera;
     final next = (camera.zoom + delta).clamp(11.0, 18.0);
-    _map.move(camera.center, next);
-  }
-
-  /// Starting zoom that keeps the whole nearby radius visible above the sheet.
-  ///
-  /// At this latitude one tile-pixel is ~3.5 m at zoom 15, so an 800 m circle
-  /// needs more room than a phone screen shows once the sheet covers the lower
-  /// half. Each radius step moves one zoom level: 400 m reads at 15, the default
-  /// 800 m at 14, and 1200 m at 13.
-  static double _zoomForRadius(double radiusM) {
-    if (radiusM <= 400) return 15;
-    if (radiusM >= 1200) return 13;
-    return 14;
+    // Keep the user in the visible strip when we are following them; otherwise
+    // zoom about whatever the user is looking at.
+    final center = _followUser
+        ? _shiftForSheet(
+            LatLng(
+              widget.feed.position.value.lat,
+              widget.feed.position.value.lon,
+            ),
+            next,
+          )
+        : camera.center;
+    _map.move(center, next, id: 'move_${_moveId++}');
   }
 
   List<CircleMarker> _circlesFor(
@@ -179,7 +269,7 @@ class _MapPanelState extends State<MapPanel> {
                   // code's fixed `15` contradicted. Pick the zoom from the
                   // radius setting instead: 800 m reads well at 14, and the
                   // wider/narrower settings step with it.
-                  initialZoom: _zoomForRadius(widget.settings.radiusM),
+                  initialZoom: MapPanel.zoomForRadius(widget.settings.radiusM),
                   minZoom: 11,
                   maxZoom: 18,
                   backgroundColor: colors.bg,
@@ -191,6 +281,9 @@ class _MapPanelState extends State<MapPanel> {
                       setState(() => _followUser = false);
                     }
                   },
+                  // The controller only becomes safe to read once the map has
+                  // been laid out; camera reads elsewhere are gated on this.
+                  onMapReady: () => _mapReady = true,
                 ),
                 children: [
                   TileLayer(
