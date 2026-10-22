@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Handoff background: the palest surface from the design system. -->
+<resources>
+    <color name="ic_launcher_background">#F6F9FC</color>
+</resources>

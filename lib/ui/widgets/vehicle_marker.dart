@@ -5,7 +5,11 @@ import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../data/models.dart';
 
-/// Small circular badge with the route number and an optional direction arrow.
+/// Route badge drawn on the map.
+///
+/// Handoff spec: a tram is a 22 dp pill (radius 11), a bus a 22 dp rounded
+/// square (radius 5), both with a 2 dp `surface` ring and the route number in
+/// the matching "on" colour. Three-digit lines get extra width.
 ///
 /// Deliberately avoids `MaskFilter.blur` (ZET 1 used a blurred glow per vehicle,
 /// which forces a `saveLayer` per marker). A solid ring reads the same on a
@@ -18,14 +22,20 @@ class VehicleMarkerWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    final color = vehicle.isTram ? colors.tram : colors.bus;
+    final isTram = vehicle.isTram;
     final label = vehicle.routeShortName;
-    final fontSize = label.length > 2 ? 9.0 : (label.length > 1 ? 11.0 : 12.0);
+    final fill = isTram ? colors.tram : colors.bus;
+    final ink = isTram ? colors.onTram : colors.onBus;
+
     // Vehicles ZET never sent a GPS fix for are placed from the timetable.
     // Dim them and mark the ring so they never read as live positions.
     final estimated = vehicle.estimated;
-    final badgeColor =
-        estimated ? color.withValues(alpha: 0.55) : color;
+    final badgeColor = estimated ? fill.withValues(alpha: 0.55) : fill;
+
+    final wide = label.length > 2;
+    final width = isTram ? (wide ? 36.0 : 30.0) : (wide ? 36.0 : 26.0);
+    final radius = isTram ? 11.0 : 5.0;
+    final fontSize = wide ? 11.0 : 12.0;
 
     return Tooltip(
       message: vehicle.headsign.isEmpty
@@ -33,8 +43,8 @@ class VehicleMarkerWidget extends StatelessWidget {
           : '$label → ${vehicle.headsign}',
       waitDuration: const Duration(milliseconds: 400),
       child: SizedBox(
-        width: 42,
-        height: 42,
+        width: 46,
+        height: 40,
         child: Stack(
           alignment: Alignment.center,
           children: [
@@ -44,27 +54,26 @@ class VehicleMarkerWidget extends StatelessWidget {
                 child: Align(
                   alignment: Alignment.topCenter,
                   child: CustomPaint(
-                    size: const Size(14, 9),
+                    size: const Size(13, 8),
                     painter: _ArrowPainter(badgeColor),
                   ),
                 ),
               ),
             Container(
-              width: 25,
-              height: 25,
+              width: width,
+              height: 22,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
                 color: badgeColor,
+                borderRadius: BorderRadius.circular(radius),
                 border: Border.all(
                   color: estimated
-                      ? Colors.white.withValues(alpha: 0.35)
-                      : Colors.white.withValues(alpha: 0.85),
-                  width: estimated ? 2.4 : 1.4,
-                  strokeAlign: BorderSide.strokeAlignOutside,
+                      ? colors.bg.withValues(alpha: 0.5)
+                      : colors.bg,
+                  width: 2,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
+                    color: Colors.black.withValues(alpha: 0.3),
                     blurRadius: 3,
                     offset: const Offset(0, 1),
                   ),
@@ -76,9 +85,9 @@ class VehicleMarkerWidget extends StatelessWidget {
                 maxLines: 1,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: estimated ? 0.75 : 1),
+                  color: ink.withValues(alpha: estimated ? 0.75 : 1),
                   fontSize: fontSize,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   height: 1,
                   fontFamily: kMono,
                 ),

@@ -42,6 +42,7 @@ class _DiagnosticsSheet extends StatelessWidget {
       ('Iz rasporeda', '${stats.scheduledArrivals}'),
       ('Vozila', '${stats.vehicles} (${stats.vehiclesTram} tram / '
           '${stats.vehiclesBus} bus)'),
+      ('Bez GPS-a', '${stats.estimatedVehicles} (samo predviđanja)'),
       ('Lokacija', pos.gps
           ? '${pos.lat.toStringAsFixed(5)}, ${pos.lon.toStringAsFixed(5)}'
           : 'nema GPS-a (Zagreb centar)'),

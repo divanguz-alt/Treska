@@ -34,11 +34,53 @@ class WorkerInit {
 class WorkerRefresh {
   final double lat;
   final double lon;
-  const WorkerRefresh(this.lat, this.lon);
+
+  /// Nearby-stop radius in metres (400 / 800 / 1200, chosen in Settings).
+  final double radiusM;
+
+  const WorkerRefresh(this.lat, this.lon, {this.radiusM = 800});
 }
 
 class WorkerInvalidateStatic {
   const WorkerInvalidateStatic();
+}
+
+/// Asks for the ordered stop timeline of the next trip of [routeShortName] /
+/// [headsign] that departs after [afterUnix] and serves [stopId] — used by the
+/// arrival-details screen.
+class WorkerTripStops {
+  final String routeShortName;
+  final String headsign;
+  final String stopId;
+  final int afterUnix;
+
+  /// Correlates the reply with the request; the controller keeps a map.
+  final int id;
+
+  const WorkerTripStops({
+    required this.routeShortName,
+    required this.headsign,
+    required this.stopId,
+    required this.afterUnix,
+    required this.id,
+  });
+}
+
+class WorkerTripStopsResult {
+  final String routeShortName;
+  final String headsign;
+  final int routeType;
+  final int id;
+
+  /// Ordered stops with the scheduled seconds-after-midnight for each.
+  final List<TripStop> stops;
+  const WorkerTripStopsResult({
+    required this.routeShortName,
+    required this.headsign,
+    required this.routeType,
+    required this.stops,
+    this.id = 0,
+  });
 }
 
 class WorkerHello {
@@ -277,6 +319,7 @@ void zetWorkerMain(SendPort handshake) {
       final snapshot = engine!.refresh(
         lat: message.lat,
         lon: message.lon,
+        radiusM: message.radiusM,
         rtBytes: rtBytes,
         rtFeed: pushed ? lastWireFeed : null,
         now: DateTime.now(),
@@ -339,6 +382,21 @@ void zetWorkerMain(SendPort handshake) {
     } else if (message is WorkerRefresh) {
       lastRefresh = message;
       doRefresh(message);
+    } else if (message is WorkerTripStops) {
+      final result = engine?.tripStops(
+        routeShortName: message.routeShortName,
+        headsign: message.headsign,
+        stopId: message.stopId,
+        afterUnix: message.afterUnix,
+        now: DateTime.now(),
+      );
+      handshake.send(WorkerTripStopsResult(
+        routeShortName: message.routeShortName,
+        headsign: message.headsign,
+        routeType: result?.routeType ?? kRouteTypeBus,
+        stops: result?.stops ?? const [],
+        id: message.id,
+      ));
     } else if (message is WorkerInvalidateStatic) {
       if (zipPath.isEmpty) return;
       try {

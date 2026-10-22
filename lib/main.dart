@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'app.dart';
 import 'data/feed_controller.dart';
 import 'data/update_service.dart';
+import 'settings_controller.dart';
 import 'theme_controller.dart';
 
 void main() {
@@ -14,5 +15,6 @@ void main() {
   runApp(ZetApp(
     feed: FeedController(),
     themeController: ThemeController(),
+    settings: SettingsController(),
   ));
 }

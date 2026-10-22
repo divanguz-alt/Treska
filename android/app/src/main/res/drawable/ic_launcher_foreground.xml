@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Treska launcher foreground, traced from the design handoff
+  (design_handoff_treska_android/assets/icon/ic_launcher_foreground.svg).
+
+  The adaptive-icon safe zone is the inner 66 x 66 dp of a 108 x 108 dp canvas,
+  so the artwork is scaled to 72 % about the centre: the SVG's 108-unit box
+  becomes the 72-unit safe box. This keeps the tram fully visible whatever mask
+  the launcher applies (circle, squircle, teardrop).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:scaleX="0.72"
+        android:scaleY="0.72"
+        android:pivotX="54"
+        android:pivotY="54">
+
+        <!-- Track / platform line under the tram. -->
+        <path
+            android:fillColor="#1D5AB0"
+            android:fillAlpha="0.55"
+            android:pathData="M28.5,82 L79.5,82 A1.5,1.5 0 0 1 79.5,85 L28.5,85 A1.5,1.5 0 0 1 28.5,82 Z" />
+
+        <!-- Pantograph. -->
+        <path
+            android:strokeColor="#1351A6"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:strokeLineCap="round"
+            android:pathData="M44,28 L54,20 L64,28" />
+        <path
+            android:fillColor="#1351A6"
+            android:pathData="M43,28 L65,28 A2,2 0 0 1 65,32 L43,32 A2,2 0 0 1 43,28 Z" />
+
+        <!-- Body. -->
+        <path
+            android:fillColor="#1351A6"
+            android:pathData="M44,33 L64,33 A11,11 0 0 1 75,44 L75,68 A11,11 0 0 1 64,79 L44,79 A11,11 0 0 1 33,68 L33,44 A11,11 0 0 1 44,33 Z" />
+
+        <!-- Windscreen. -->
+        <path
+            android:fillColor="#F6F9FC"
+            android:pathData="M43,38 L65,38 A5,5 0 0 1 70,43 L70,52 A5,5 0 0 1 65,57 L43,57 A5,5 0 0 1 38,52 L38,43 A5,5 0 0 1 43,38 Z" />
+
+        <!-- Destination display. -->
+        <path
+            android:fillColor="#F4CE23"
+            android:pathData="M48.5,41 L63.5,41 A2.5,2.5 0 0 1 63.5,46 L48.5,46 A2.5,2.5 0 0 1 48.5,41 Z" />
+
+        <!-- Headlights. -->
+        <path
+            android:fillColor="#F4CE23"
+            android:pathData="M42,64.8 A3.2,3.2 0 1 1 42,71.2 A3.2,3.2 0 1 1 42,64.8 Z" />
+        <path
+            android:fillColor="#F4CE23"
+            android:pathData="M66,64.8 A3.2,3.2 0 1 1 66,71.2 A3.2,3.2 0 1 1 66,64.8 Z" />
+    </group>
+</vector>

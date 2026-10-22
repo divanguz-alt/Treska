@@ -93,6 +93,36 @@ class NearbyStop {
   });
 }
 
+/// One stop on a trip's timeline, used by the arrival-details screen.
+class TripStop {
+  final String stopId;
+  final String name;
+  final double lat;
+  final double lon;
+
+  /// Scheduled time on this trip (absolute local time, may be "next day" for
+  /// services that run past midnight).
+  final DateTime time;
+  final bool passed;
+
+  const TripStop({
+    required this.stopId,
+    required this.name,
+    required this.lat,
+    required this.lon,
+    required this.time,
+    required this.passed,
+  });
+}
+
+/// The ordered timelime of one trip, plus the route type the badge needs.
+class TripTimeline {
+  final int routeType;
+  final List<TripStop> stops;
+
+  const TripTimeline({required this.routeType, required this.stops});
+}
+
 class Vehicle {
   final String routeShortName;
   final int routeType;
@@ -144,9 +174,15 @@ class Vehicle {
 }
 
 class FeedStats {
+  /// Vehicles with a real GPS fix — the ones the map draws.
   final int vehicles;
   final int vehiclesTram;
   final int vehiclesBus;
+
+  /// Trips that have predictions but no GPS fix. Not drawn; shown so the
+  /// diagnostics can explain the gap between the feed and the map.
+  final int estimatedVehicles;
+
   final int rtArrivals;
   final int estimatedArrivals;
   final int scheduledArrivals;
@@ -169,6 +205,7 @@ class FeedStats {
     this.vehicles = 0,
     this.vehiclesTram = 0,
     this.vehiclesBus = 0,
+    this.estimatedVehicles = 0,
     this.rtArrivals = 0,
     this.estimatedArrivals = 0,
     this.scheduledArrivals = 0,
@@ -186,6 +223,7 @@ class FeedStats {
     int? vehicles,
     int? vehiclesTram,
     int? vehiclesBus,
+    int? estimatedVehicles,
     int? rtArrivals,
     int? estimatedArrivals,
     int? scheduledArrivals,
@@ -202,6 +240,7 @@ class FeedStats {
       vehicles: vehicles ?? this.vehicles,
       vehiclesTram: vehiclesTram ?? this.vehiclesTram,
       vehiclesBus: vehiclesBus ?? this.vehiclesBus,
+      estimatedVehicles: estimatedVehicles ?? this.estimatedVehicles,
       rtArrivals: rtArrivals ?? this.rtArrivals,
       estimatedArrivals: estimatedArrivals ?? this.estimatedArrivals,
       scheduledArrivals: scheduledArrivals ?? this.scheduledArrivals,
@@ -229,35 +268,49 @@ class FeedStats {
 class FeedSnapshot {
   final List<NearbyStop> tramStops;
   final List<NearbyStop> busStops;
+
+  /// Vehicles with a real GPS fix. Trip-update-only positions are kept apart in
+  /// [estimatedVehicles] so the map never draws a dot nobody reported.
   final List<Vehicle> vehicles;
+  final List<Vehicle> estimatedVehicles;
   final FeedStats stats;
   final DateTime updatedAt;
   final String error;
+
+  /// Radius the nearby-stop search used, in metres. The map draws its circle
+  /// from this so the ring always matches the list.
+  final double radiusM;
 
   const FeedSnapshot({
     this.tramStops = const [],
     this.busStops = const [],
     this.vehicles = const [],
+    this.estimatedVehicles = const [],
     this.stats = const FeedStats(),
     required this.updatedAt,
     this.error = '',
+    this.radiusM = 800,
   });
 
   FeedSnapshot copyWith({
     List<NearbyStop>? tramStops,
     List<NearbyStop>? busStops,
     List<Vehicle>? vehicles,
+    List<Vehicle>? estimatedVehicles,
     FeedStats? stats,
     DateTime? updatedAt,
     String? error,
+    double? radiusM,
   }) {
     return FeedSnapshot(
       tramStops: tramStops ?? this.tramStops,
       busStops: busStops ?? this.busStops,
       vehicles: vehicles ?? this.vehicles,
+      estimatedVehicles: estimatedVehicles ?? this.estimatedVehicles,
       stats: stats ?? this.stats,
       updatedAt: updatedAt ?? this.updatedAt,
       error: error ?? this.error,
+      radiusM: radiusM ?? this.radiusM,
     );
   }
 }

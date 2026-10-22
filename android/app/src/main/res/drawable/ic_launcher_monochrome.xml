@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Monochrome (themed icon) layer for Android 13+. Same geometry as
+  drawable/ic_launcher_foreground.xml but flat white, which is what the system
+  tints. Traced from ic_launcher_monochrome.svg.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:scaleX="0.72"
+        android:scaleY="0.72"
+        android:pivotX="54"
+        android:pivotY="54">
+
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillAlpha="0.55"
+            android:pathData="M28.5,82 L79.5,82 A1.5,1.5 0 0 1 79.5,85 L28.5,85 A1.5,1.5 0 0 1 28.5,82 Z" />
+
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:strokeLineCap="round"
+            android:pathData="M44,28 L54,20 L64,28" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M43,28 L65,28 A2,2 0 0 1 65,32 L43,32 A2,2 0 0 1 43,28 Z" />
+
+        <!-- Body with the windscreen punched out (evenOdd subpath). -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M44,33 L64,33 A11,11 0 0 1 75,44 L75,68 A11,11 0 0 1 64,79 L44,79 A11,11 0 0 1 33,68 L33,44 A11,11 0 0 1 44,33 Z M43,38 L38,43 L38,52 L43,57 L65,57 L70,52 L70,43 L65,38 Z" />
+
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M48.5,41 L63.5,41 A2.5,2.5 0 0 1 63.5,46 L48.5,46 A2.5,2.5 0 0 1 48.5,41 Z" />
+
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M42,64.8 A3.2,3.2 0 1 1 42,71.2 A3.2,3.2 0 1 1 42,64.8 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M66,64.8 A3.2,3.2 0 1 1 66,71.2 A3.2,3.2 0 1 1 66,64.8 Z" />
+    </group>
+</vector>

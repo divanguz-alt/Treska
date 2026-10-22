@@ -1,148 +1,200 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
+import '../core/tokens.dart';
 import '../data/feed_controller.dart';
 import '../data/models.dart';
+import '../settings_controller.dart';
+import 'arrival_details.dart';
 import 'diagnostics_sheet.dart';
 import 'widgets/stop_card.dart';
+import 'widgets/timer_builder.dart';
 
-/// Departure board for one mode (tram or bus).
+/// The sheet's content: nearby stops, the selected stop's grouped departures and
+/// the legend.
 ///
-/// The tab selector is hand-drawn instead of [TabBar]/[TabBarView]: only the
-/// visible list is built, and switching tabs never rebuilds the map.
-class BoardPanel extends StatelessWidget {
+/// Only the selected stop's board is built, with the other nearby stops offered
+/// as suggestion chips — that keeps a busy tram stop from rendering five full
+/// boards at once while still making the neighbours one tap away.
+class BoardPanel extends StatefulWidget {
   final FeedController feed;
+  final SettingsController settings;
   final int mode;
+  final ScrollController? scrollController;
   final ValueChanged<int> onModeChanged;
 
   const BoardPanel({
     super.key,
     required this.feed,
+    required this.settings,
     required this.mode,
     required this.onModeChanged,
+    this.scrollController,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final colors = context.zet;
+  State<BoardPanel> createState() => _BoardPanelState();
+}
 
+class _BoardPanelState extends State<BoardPanel> {
+  /// Stop the board is focused on; null means "the nearest one".
+  String? _selectedStopId;
+
+  @override
+  Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([feed.snapshot, feed.status]),
+      listenable: Listenable.merge([widget.feed.snapshot, widget.feed.status]),
       builder: (context, _) {
-        final snapshot = feed.snapshot.value;
-        final tramCount = snapshot?.tramStops.length ?? 0;
-        final busCount = snapshot?.busStops.length ?? 0;
+        final snapshot = widget.feed.snapshot.value;
         final loading = snapshot == null;
 
-        return Container(
-          color: colors.bg,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _ModeTabs(
-                mode: mode,
-                tramCount: tramCount,
-                busCount: busCount,
-                enabled: !loading,
-                onChanged: onModeChanged,
-                onRefresh: feed.refreshNow,
-              ),
-              Expanded(
-                child: loading
-                    ? _LoadingState(feed: feed)
-                    : _StopList(
-                        feed: feed,
-                        stops: mode == kModeTram
-                            ? snapshot.tramStops
-                            : snapshot.busStops,
-                        mode: mode,
-                        error: snapshot.error,
-                      ),
-              ),
-              if (!loading) const _BoardLegend(),
-            ],
-          ),
+        final stops = loading
+            ? const <NearbyStop>[]
+            : (widget.mode == kModeTram
+                ? snapshot.tramStops
+                : snapshot.busStops);
+
+        // Fall back to the nearest stop whenever the selection is gone.
+        NearbyStop? selected;
+        for (final s in stops) {
+          if (s.stop.id == _selectedStopId) {
+            selected = s;
+            break;
+          }
+        }
+        selected ??= stops.isNotEmpty ? stops.first : null;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _FilterChips(
+              mode: widget.mode,
+              tramCount: _lineCount(snapshot?.tramStops),
+              busCount: _lineCount(snapshot?.busStops),
+              stops: stops,
+              selectedStopId: selected?.stop.id,
+              radiusM: widget.settings.radiusM,
+              onModeChanged: widget.onModeChanged,
+              onStopChanged: (id) => setState(() => _selectedStopId = id),
+            ),
+            Expanded(
+              child: loading
+                  ? _LoadingState(feed: widget.feed)
+                  : selected == null
+                      ? _EmptyState(
+                          feed: widget.feed,
+                          mode: widget.mode,
+                          error: snapshot.error,
+                          radiusM: widget.settings.radiusM,
+                        )
+                      : _BoardBody(
+                          feed: widget.feed,
+                          stop: selected,
+                          scrollController: widget.scrollController,
+                          error: snapshot.error,
+                        ),
+            ),
+            if (!loading && selected != null) const _BoardLegend(),
+          ],
         );
       },
     );
   }
+
+  int _lineCount(List<NearbyStop>? stops) {
+    if (stops == null) return 0;
+    final lines = <String>{};
+    for (final s in stops) {
+      for (final a in s.arrivals) {
+        lines.add(a.routeShortName);
+      }
+    }
+    return lines.length;
+  }
 }
 
-class _ModeTabs extends StatelessWidget {
+/// M3 filter chips for the two modes plus the neighbouring stops.
+class _FilterChips extends StatelessWidget {
   final int mode;
   final int tramCount;
   final int busCount;
-  final bool enabled;
-  final ValueChanged<int> onChanged;
-  final Future<void> Function() onRefresh;
+  final List<NearbyStop> stops;
+  final String? selectedStopId;
+  final double radiusM;
+  final ValueChanged<int> onModeChanged;
+  final ValueChanged<String> onStopChanged;
 
-  const _ModeTabs({
+  const _FilterChips({
     required this.mode,
     required this.tramCount,
     required this.busCount,
-    required this.enabled,
-    required this.onChanged,
-    required this.onRefresh,
+    required this.stops,
+    required this.selectedStopId,
+    required this.radiusM,
+    required this.onModeChanged,
+    required this.onStopChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.panel,
-        border: Border(
-          bottom: BorderSide(color: colors.border),
-          top: BorderSide(color: colors.border),
+    final others =
+        stops.where((s) => s.stop.id != selectedStopId).take(6).toList();
+
+    return SizedBox(
+      height: 56,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(
+          horizontal: ZetSpace.sheet,
+          vertical: ZetSpace.md,
         ),
-      ),
-      height: 40,
-      child: Row(
         children: [
-          Expanded(
-            child: _TabButton(
-              label: 'TRAMVAJI',
-              count: tramCount,
-              selected: mode == kModeTram,
-              color: colors.tram,
-              onTap: enabled ? () => onChanged(kModeTram) : null,
+          _ModeChip(
+            label: 'Tramvaji $tramCount',
+            icon: Icons.tram,
+            selected: mode == kModeTram,
+            color: colors.tram,
+            onTap: () => onModeChanged(kModeTram),
+          ),
+          const SizedBox(width: ZetSpace.sm),
+          _ModeChip(
+            label: 'Autobusi $busCount',
+            icon: Icons.directions_bus,
+            selected: mode == kModeBus,
+            color: colors.bus,
+            onTap: () => onModeChanged(kModeBus),
+          ),
+          if (others.isNotEmpty) ...[
+            const SizedBox(width: ZetSpace.md),
+            Center(
+              child: Container(width: 1, height: 24, color: colors.borderStrong),
             ),
-          ),
-          Container(width: 1, color: colors.border),
-          Expanded(
-            child: _TabButton(
-              label: 'AUTOBUSI',
-              count: busCount,
-              selected: mode == kModeBus,
-              color: colors.bus,
-              onTap: enabled ? () => onChanged(kModeBus) : null,
-            ),
-          ),
-          Container(width: 1, color: colors.border),
-          IconButton(
-            onPressed: () => onRefresh(),
-            tooltip: 'Osvježi',
-            visualDensity: VisualDensity.compact,
-            iconSize: 18,
-            color: colors.textDim,
-            icon: const Icon(Icons.refresh),
-          ),
+            const SizedBox(width: ZetSpace.md),
+            for (final s in others) ...[
+              _StopChip(
+                stop: s,
+                onTap: () => onStopChanged(s.stop.id),
+              ),
+              const SizedBox(width: ZetSpace.sm),
+            ],
+          ],
         ],
       ),
     );
   }
 }
 
-class _TabButton extends StatelessWidget {
+class _ModeChip extends StatelessWidget {
   final String label;
-  final int count;
+  final IconData icon;
   final bool selected;
   final Color color;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
 
-  const _TabButton({
+  const _ModeChip({
     required this.label,
-    required this.count,
+    required this.icon,
     required this.selected,
     required this.color,
     required this.onTap,
@@ -151,54 +203,160 @@ class _TabButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: selected ? colors.panelAlt : colors.panel,
-          border: Border(
-            bottom: BorderSide(
-              color: selected ? color : Colors.transparent,
-              width: 2,
+    return Material(
+      color: selected ? colors.primaryContainer : colors.panel,
+      borderRadius: BorderRadius.circular(ZetRadius.chip),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(ZetRadius.chip),
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: ZetSpace.md),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: selected ? Colors.transparent : colors.border,
             ),
+            borderRadius: BorderRadius.circular(ZetRadius.chip),
           ),
-        ),
-        alignment: Alignment.center,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                letterSpacing: 1.1,
-                fontWeight: FontWeight.w700,
-                color: selected ? colors.textHi : colors.textDim,
-                fontFamily: kMono,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                selected ? Icons.check : icon,
+                size: 16,
+                color: selected ? colors.onPrimaryContainer : colors.textDim,
               ),
-            ),
-            const SizedBox(width: 5),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(
-                color: selected
-                    ? color.withValues(alpha: 0.18)
-                    : colors.border.withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(2),
-              ),
-              child: Text(
-                '$count',
+              const SizedBox(width: 6),
+              Text(
+                label,
                 style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  color: selected ? color : colors.textDim,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: selected ? colors.onPrimaryContainer : colors.text,
                   fontFamily: kMono,
+                  fontFeatures: kTabular,
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _StopChip extends StatelessWidget {
+  final NearbyStop stop;
+  final VoidCallback onTap;
+
+  const _StopChip({required this.stop, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return Material(
+      color: colors.panel,
+      borderRadius: BorderRadius.circular(ZetRadius.chip),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(ZetRadius.chip),
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: ZetSpace.md),
+          decoration: BoxDecoration(
+            border: Border.all(color: colors.border),
+            borderRadius: BorderRadius.circular(ZetRadius.chip),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.location_on_outlined,
+                  size: 15, color: colors.textDim),
+              const SizedBox(width: 5),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 120),
+                child: Text(
+                  stop.stop.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: colors.text,
+                    fontFamily: kMono,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                distanceLabel(stop.distanceM),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colors.textDim,
+                  fontFamily: kMono,
+                  fontFeatures: kTabular,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Scrolling content: stop header followed by the grouped board.
+class _BoardBody extends StatelessWidget {
+  final FeedController feed;
+  final NearbyStop stop;
+  final ScrollController? scrollController;
+  final String error;
+
+  const _BoardBody({
+    required this.feed,
+    required this.stop,
+    required this.scrollController,
+    required this.error,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+
+    // The ETA counts down every second between refreshes, so re-render the list
+    // on a 1 s tick while it is visible.
+    return TimerBuilder(
+      interval: const Duration(seconds: 1),
+      builder: (context) {
+        final now = DateTime.now();
+        return RefreshIndicator(
+          onRefresh: feed.refreshNow,
+          color: colors.primary,
+          backgroundColor: colors.bg,
+          child: ListView(
+            controller: scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.only(bottom: ZetSpace.sheet),
+            children: [
+              if (error.isNotEmpty)
+                _ErrorBanner(feed: feed, message: error),
+              Padding(
+                padding: const EdgeInsets.only(top: ZetSpace.sm),
+                child: StopHeader(stop: stop),
+              ),
+              StopBoard(
+                stop: stop,
+                now: now,
+                onOpen: (group) => showArrivalDetails(
+                  context,
+                  feed: feed,
+                  stop: stop,
+                  group: group,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -211,128 +369,79 @@ class _BoardLegend extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.zet;
     final style = TextStyle(
-      fontSize: 8,
-      letterSpacing: 0.5,
+      fontSize: 12,
       fontFamily: kMono,
       color: colors.textDim,
     );
 
     return Container(
-      height: 20,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: ZetSpace.sheet),
       decoration: BoxDecoration(
-        color: colors.panel,
-        border: Border(top: BorderSide(color: colors.border)),
+        border: Border(top: BorderSide(color: colors.borderStrong)),
       ),
       child: Row(
         children: [
-          Container(
-            width: 5,
-            height: 5,
-            decoration: BoxDecoration(
-              color: colors.textHi,
-              shape: BoxShape.circle,
+          _LegendItem(
+            dot: Container(
+              width: 7,
+              height: 7,
+              decoration:
+                  BoxDecoration(shape: BoxShape.circle, color: colors.ok),
             ),
+            label: 'Uživo (GPS)',
+            style: style,
           ),
-          const SizedBox(width: 4),
-          Text('RT', style: style.copyWith(color: colors.textHi)),
-          const SizedBox(width: 10),
-          Text('≈', style: style.copyWith(color: colors.accent, fontSize: 10)),
-          const SizedBox(width: 3),
-          Text('PROCJENA', style: style.copyWith(color: colors.accentDim)),
-          const SizedBox(width: 10),
-          Text('~', style: style.copyWith(fontSize: 10)),
-          const SizedBox(width: 3),
-          Text('RASPORED', style: style),
-          const Spacer(),
-          Text('800 m', style: style),
+          const SizedBox(width: ZetSpace.lg),
+          _LegendItem(
+            dot: Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: colors.textDim, width: 1.4),
+              ),
+            ),
+            label: 'Procjena',
+            style: style,
+          ),
+          const SizedBox(width: ZetSpace.lg),
+          _LegendItem(
+            dot: Container(
+              width: 7,
+              height: 7,
+              decoration:
+                  BoxDecoration(shape: BoxShape.circle, color: colors.border),
+            ),
+            label: 'Raspored',
+            style: style,
+          ),
         ],
       ),
     );
   }
 }
 
-class _StopList extends StatelessWidget {
-  final FeedController feed;
-  final List<NearbyStop> stops;
-  final int mode;
-  final String error;
+class _LegendItem extends StatelessWidget {
+  final Widget dot;
+  final String label;
+  final TextStyle style;
 
-  const _StopList({
-    required this.feed,
-    required this.stops,
-    required this.mode,
-    required this.error,
+  const _LegendItem({
+    required this.dot,
+    required this.label,
+    required this.style,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.zet;
-    final now = DateTime.now();
-    final showError = error.isNotEmpty;
-
-    if (stops.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: feed.refreshNow,
-        color: colors.accent,
-        backgroundColor: colors.panel,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
-          children: [
-            if (showError) _ErrorBanner(feed: feed, message: error),
-            const SizedBox(height: 24),
-            Icon(Icons.filter_alt_off_outlined,
-                size: 30, color: colors.textDim),
-            const SizedBox(height: 10),
-            Text(
-              mode == kModeTram
-                  ? 'Nema tramvaja u krugu od 800 m'
-                  : 'Nema autobusa u krugu od 800 m',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: colors.textDim,
-                fontFamily: kMono,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Povuci za osvježavanje ili provjeri GPS.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 10,
-                color: colors.textDim.withValues(alpha: 0.75),
-                fontFamily: kMono,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: feed.refreshNow,
-      color: colors.accent,
-      backgroundColor: colors.panel,
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(10, 10, 10, 18),
-        itemCount: stops.length + (showError ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (showError && index == 0) {
-            return _ErrorBanner(feed: feed, message: error);
-          }
-          final stop = stops[showError ? index - 1 : index];
-          return StopCard(
-            key: ValueKey('${mode}_${stop.stop.id}'),
-            stop: stop,
-            mode: mode,
-            now: now,
-          );
-        },
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        dot,
+        const SizedBox(width: 6),
+        Text(label, style: style),
+      ],
     );
   }
 }
@@ -347,26 +456,30 @@ class _ErrorBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.zet;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(
+          ZetSpace.md, ZetSpace.sm, ZetSpace.md, 0),
       child: InkWell(
         onTap: () => showDiagnostics(context, feed),
+        borderRadius: BorderRadius.circular(ZetRadius.card),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(
+              horizontal: ZetSpace.md, vertical: ZetSpace.sm),
           decoration: BoxDecoration(
             color: colors.danger.withValues(alpha: 0.08),
             border: Border.all(color: colors.danger.withValues(alpha: 0.5)),
+            borderRadius: BorderRadius.circular(ZetRadius.card),
           ),
           child: Row(
             children: [
-              Icon(Icons.wifi_off, size: 14, color: colors.danger),
-              const SizedBox(width: 8),
+              Icon(Icons.wifi_off, size: 16, color: colors.danger),
+              const SizedBox(width: ZetSpace.sm),
               Expanded(
                 child: Text(
                   message,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 13,
                     color: colors.danger,
                     fontFamily: kMono,
                     height: 1.3,
@@ -374,10 +487,69 @@ class _ErrorBanner extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
-              Icon(Icons.chevron_right, size: 14, color: colors.danger),
+              Icon(Icons.chevron_right, size: 16, color: colors.danger),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final FeedController feed;
+  final int mode;
+  final String error;
+  final double radiusM;
+
+  const _EmptyState({
+    required this.feed,
+    required this.mode,
+    required this.error,
+    required this.radiusM,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    final radius = radiusM.round();
+    return RefreshIndicator(
+      onRefresh: feed.refreshNow,
+      color: colors.primary,
+      backgroundColor: colors.bg,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(
+            ZetSpace.lg, ZetSpace.xl, ZetSpace.lg, ZetSpace.lg),
+        children: [
+          if (error.isNotEmpty) _ErrorBanner(feed: feed, message: error),
+          const SizedBox(height: ZetSpace.xl),
+          Icon(Icons.filter_alt_off_outlined, size: 32, color: colors.textDim),
+          const SizedBox(height: ZetSpace.md),
+          Text(
+            mode == kModeTram
+                ? 'Nema tramvaja u krugu od $radius m'
+                : 'Nema autobusa u krugu od $radius m',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: colors.textDim,
+              fontFamily: kMono,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Povuci za osvježavanje, povećaj radijus u postavkama ili '
+            'provjeri GPS.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: colors.textDim,
+              fontFamily: kMono,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -394,19 +566,19 @@ class _LoadingState extends StatelessWidget {
 
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 28),
+        padding: const EdgeInsets.symmetric(horizontal: ZetSpace.sheet),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (status.staticError.isEmpty) ...[
               const SizedBox(
-                width: 22,
-                height: 22,
+                width: 24,
+                height: 24,
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: ZetSpace.row),
             ] else
-              Icon(Icons.error_outline, size: 28, color: colors.danger),
+              Icon(Icons.error_outline, size: 32, color: colors.danger),
             Text(
               status.staticError.isEmpty
                   ? (status.loading.isEmpty
@@ -415,7 +587,7 @@ class _LoadingState extends StatelessWidget {
                   : status.staticError,
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 14,
                 color: status.staticError.isEmpty
                     ? colors.textDim
                     : colors.danger,
@@ -429,25 +601,16 @@ class _LoadingState extends StatelessWidget {
                 'Prvo pokretanje preuzima ~19 MB rasporeda.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 9,
-                  color: colors.textDim.withValues(alpha: 0.7),
+                  fontSize: 13,
+                  color: colors.textDim,
                   fontFamily: kMono,
                 ),
               ),
-            const SizedBox(height: 14),
+            const SizedBox(height: ZetSpace.lg),
             if (status.staticError.isNotEmpty)
-              TextButton(
+              FilledButton(
                 onPressed: feed.retryStatic,
-                child: Text(
-                  'POKUŠAJ PONOVNO',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: colors.accent,
-                    letterSpacing: 1,
-                    fontFamily: kMono,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                child: const Text('Pokušaj ponovno'),
               ),
           ],
         ),

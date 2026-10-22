@@ -79,6 +79,16 @@ class FeedController with WidgetsBindingObserver {
   bool _disposed = false;
   int _lastVehicleSignature = 0;
 
+  /// Nearby-stop radius in metres, driven by Settings (400 / 800 / 1200).
+  double radiusM = 800;
+
+  /// Called when the radius changes: the next tick uses the new circle.
+  void setRadius(double meters) {
+    if (meters == radiusM) return;
+    radiusM = meters;
+    _tick();
+  }
+
   bool get isRunning => _timer != null;
 
   Future<void> start() async {
@@ -159,6 +169,14 @@ class FeedController with WidgetsBindingObserver {
       return;
     }
 
+    if (message is WorkerTripStopsResult) {
+      final completer = _tripRequests.remove(message.id);
+      if (completer != null && !completer.isCompleted) {
+        completer.complete(message);
+      }
+      return;
+    }
+
     // Isolate crash (onExit/onError share the inbox).
     if (message is List) {
       status.value = status.value.copyWith(
@@ -209,7 +227,7 @@ class FeedController with WidgetsBindingObserver {
       }
     }
 
-    _worker!.send(WorkerRefresh(pos.lat, pos.lon));
+    _worker!.send(WorkerRefresh(pos.lat, pos.lon, radiusM: radiusM));
 
     _requestGuard?.cancel();
     _requestGuard = Timer(_requestTimeout, () {
@@ -244,6 +262,47 @@ class FeedController with WidgetsBindingObserver {
     position.value = pos;
     status.value = status.value.copyWith(gps: pos.gps);
     _tick();
+  }
+
+  /// Requests the stop timeline for the next matching trip. Never throws; an
+  /// empty list means the details screen shows only the ETA card.
+  final Map<int, Completer<WorkerTripStopsResult>> _tripRequests = {};
+  int _tripRequestSeq = 0;
+
+  Future<List<TripStop>> tripStopsFor({
+    required String routeShortName,
+    required String headsign,
+    required String stopId,
+    required DateTime at,
+  }) async {
+    final worker = _worker;
+    if (worker == null) return const [];
+    final id = ++_tripRequestSeq;
+    final completer = Completer<WorkerTripStopsResult>();
+    _tripRequests[id] = completer;
+    worker.send(WorkerTripStops(
+      routeShortName: routeShortName,
+      headsign: headsign,
+      stopId: stopId,
+      afterUnix: at.millisecondsSinceEpoch ~/ 1000,
+      id: id,
+    ));
+    try {
+      final result = await completer.future
+          .timeout(const Duration(seconds: 6), onTimeout: () {
+        _tripRequests.remove(id);
+        return const WorkerTripStopsResult(
+          routeShortName: '',
+          headsign: '',
+          routeType: kRouteTypeBus,
+          stops: [],
+        );
+      });
+      return result.stops;
+    } catch (_) {
+      _tripRequests.remove(id);
+      return const [];
+    }
   }
 
   void _restartWorker() {

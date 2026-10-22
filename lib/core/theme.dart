@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'tokens.dart';
+
 /// All colours used by the app, exposed as a [ThemeExtension] so widgets can
 /// read them from `Theme.of(context)` instead of hard-coding constants.
+///
+/// Values come from the Claude design handoff (`design_handoff_treska_android/`,
+/// section „Design tokeni“). The handoff's names are mapped onto this class:
+/// `surface` → [bg], `surfC` → [panelAlt], `surfCH` → [panel], `ink` → [text],
+/// `ink2` → [textDim], `outline` → [border], `outlineV` → [borderStrong],
+/// `primary` → [accent] / [primary], `primaryC` → [primaryContainer].
 @immutable
 class ZetColors extends ThemeExtension<ZetColors> {
   final Brightness brightness;
@@ -19,10 +27,25 @@ class ZetColors extends ThemeExtension<ZetColors> {
   final Color text;
   final Color textDim;
 
+  final Color primary;
+  final Color onPrimary;
+  final Color primaryContainer;
+  final Color onPrimaryContainer;
+
   final Color tram;
+  final Color onTram;
   final Color bus;
+  final Color onBus;
+
   final Color danger;
   final Color ok;
+  final Color warn;
+  final Color live;
+  final Color liveContainer;
+  final Color onLiveContainer;
+
+  final Color inverse;
+  final Color onInverse;
 
   /// Raster tile template for the map. `{s}` is optional.
   final String tileUrl;
@@ -38,6 +61,9 @@ class ZetColors extends ThemeExtension<ZetColors> {
   /// Highest zoom the provider serves natively; higher zooms are upscaled.
   final int tileMaxNativeZoom;
 
+  /// True when the dark map tiles already read as "dark" and need no filter.
+  final bool tileIsDark;
+
   const ZetColors({
     required this.brightness,
     required this.bg,
@@ -50,35 +76,60 @@ class ZetColors extends ThemeExtension<ZetColors> {
     required this.textHi,
     required this.text,
     required this.textDim,
+    required this.primary,
+    required this.onPrimary,
+    required this.primaryContainer,
+    required this.onPrimaryContainer,
     required this.tram,
+    required this.onTram,
     required this.bus,
+    required this.onBus,
     required this.danger,
     required this.ok,
+    required this.warn,
+    required this.live,
+    required this.liveContainer,
+    required this.onLiveContainer,
+    required this.inverse,
+    required this.onInverse,
     required this.tileUrl,
     required this.tileSubdomains,
     this.tileLabelsUrl = '',
     required this.tileAttribution,
     this.tileMaxNativeZoom = 19,
+    this.tileIsDark = false,
   });
 
   bool get isDark => brightness == Brightness.dark;
 
   static const dark = ZetColors(
     brightness: Brightness.dark,
-    bg: Color(0xFF080808),
-    panel: Color(0xFF0D0D0D),
-    panelAlt: Color(0xFF111111),
-    border: Color(0xFF1E1E1E),
-    borderStrong: Color(0xFF2E2E2E),
-    accent: Color(0xFFFFAA00),
-    accentDim: Color(0xFF7A5410),
-    textHi: Color(0xFFFFCC55),
-    text: Color(0xFFD9D2C4),
-    textDim: Color(0xFF8C7A5C),
-    tram: Color(0xFF4C9DFF),
-    bus: Color(0xFF4CC45A),
-    danger: Color(0xFFFF5544),
-    ok: Color(0xFF4CC45A),
+    bg: ZetPalette.darkSurface,
+    panel: ZetPalette.darkSurfaceContainerHigh,
+    panelAlt: ZetPalette.darkSurfaceContainer,
+    border: ZetPalette.darkOutline,
+    borderStrong: ZetPalette.darkOutlineVariant,
+    accent: ZetPalette.darkPrimary,
+    accentDim: Color(0xFF6B93C9),
+    textHi: ZetPalette.darkPrimary,
+    text: ZetPalette.darkInk,
+    textDim: ZetPalette.darkInk2,
+    primary: ZetPalette.darkPrimary,
+    onPrimary: ZetPalette.darkOnPrimary,
+    primaryContainer: ZetPalette.darkPrimaryContainer,
+    onPrimaryContainer: ZetPalette.darkOnPrimaryContainer,
+    tram: Color(0xFF92C1FD),
+    onTram: Color(0xFF031D44),
+    bus: Color(0xFFF2AD73),
+    onBus: Color(0xFF401A01),
+    danger: Color(0xFFFD7468),
+    ok: Color(0xFF6FD087),
+    warn: Color(0xFFF2B966),
+    live: Color(0xFFFD7468),
+    liveContainer: Color(0xFF5A2520),
+    onLiveContainer: Color(0xFFFEDBD6),
+    inverse: Color(0xFFE1E5EA),
+    onInverse: Color(0xFF1C222B),
     // Esri's dark canvas: labels are a separate reference layer, stacked on
     // top by the map panel. Both are free to use with attribution.
     tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/'
@@ -88,24 +139,37 @@ class ZetColors extends ThemeExtension<ZetColors> {
     tileSubdomains: [],
     tileAttribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
     tileMaxNativeZoom: 16,
+    tileIsDark: true,
   );
 
   static const light = ZetColors(
     brightness: Brightness.light,
-    bg: Color(0xFFF1EDE2),
-    panel: Color(0xFFFFFDF8),
-    panelAlt: Color(0xFFF7F2E6),
-    border: Color(0xFFDCD3BF),
-    borderStrong: Color(0xFFBFB298),
-    accent: Color(0xFF9A5600),
-    accentDim: Color(0xFF7D6647),
-    textHi: Color(0xFF7A3C00),
-    text: Color(0xFF1F1B15),
-    textDim: Color(0xFF6A6252),
-    tram: Color(0xFF1F5FBF),
-    bus: Color(0xFF2A7A33),
+    bg: ZetPalette.lightSurface,
+    panel: ZetPalette.lightSurfaceContainerHigh,
+    panelAlt: ZetPalette.lightSurfaceContainer,
+    border: ZetPalette.lightOutline,
+    borderStrong: ZetPalette.lightOutlineVariant,
+    accent: ZetPalette.lightPrimary,
+    accentDim: Color(0xFF5B7FAF),
+    textHi: ZetPalette.lightPrimary,
+    text: ZetPalette.lightInk,
+    textDim: ZetPalette.lightInk2,
+    primary: ZetPalette.lightPrimary,
+    onPrimary: ZetPalette.lightOnPrimary,
+    primaryContainer: ZetPalette.lightPrimaryContainer,
+    onPrimaryContainer: ZetPalette.lightOnPrimaryContainer,
+    tram: Color(0xFF1D5AB0),
+    onTram: Color(0xFFFCFCFC),
+    bus: Color(0xFFB55422),
+    onBus: Color(0xFFFCFCFC),
     danger: Color(0xFFC0281B),
-    ok: Color(0xFF2A7A33),
+    ok: Color(0xFF1B9247),
+    warn: Color(0xFF9D5300),
+    live: Color(0xFFD02C2A),
+    liveContainer: Color(0xFFFFDEDA),
+    onLiveContainer: Color(0xFF901114),
+    inverse: Color(0xFF282E38),
+    onInverse: Color(0xFFEBEFF4),
     // Plain OpenStreetMap raster tiles: free, no key, labelled.
     tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     tileSubdomains: [],
@@ -126,15 +190,28 @@ class ZetColors extends ThemeExtension<ZetColors> {
     Color? textHi,
     Color? text,
     Color? textDim,
+    Color? primary,
+    Color? onPrimary,
+    Color? primaryContainer,
+    Color? onPrimaryContainer,
     Color? tram,
+    Color? onTram,
     Color? bus,
+    Color? onBus,
     Color? danger,
     Color? ok,
+    Color? warn,
+    Color? live,
+    Color? liveContainer,
+    Color? onLiveContainer,
+    Color? inverse,
+    Color? onInverse,
     String? tileUrl,
     String? tileLabelsUrl,
     List<String>? tileSubdomains,
     String? tileAttribution,
     int? tileMaxNativeZoom,
+    bool? tileIsDark,
   }) {
     return ZetColors(
       brightness: brightness ?? this.brightness,
@@ -148,43 +225,70 @@ class ZetColors extends ThemeExtension<ZetColors> {
       textHi: textHi ?? this.textHi,
       text: text ?? this.text,
       textDim: textDim ?? this.textDim,
+      primary: primary ?? this.primary,
+      onPrimary: onPrimary ?? this.onPrimary,
+      primaryContainer: primaryContainer ?? this.primaryContainer,
+      onPrimaryContainer: onPrimaryContainer ?? this.onPrimaryContainer,
       tram: tram ?? this.tram,
+      onTram: onTram ?? this.onTram,
       bus: bus ?? this.bus,
+      onBus: onBus ?? this.onBus,
       danger: danger ?? this.danger,
       ok: ok ?? this.ok,
+      warn: warn ?? this.warn,
+      live: live ?? this.live,
+      liveContainer: liveContainer ?? this.liveContainer,
+      onLiveContainer: onLiveContainer ?? this.onLiveContainer,
+      inverse: inverse ?? this.inverse,
+      onInverse: onInverse ?? this.onInverse,
       tileUrl: tileUrl ?? this.tileUrl,
       tileLabelsUrl: tileLabelsUrl ?? this.tileLabelsUrl,
       tileSubdomains: tileSubdomains ?? this.tileSubdomains,
       tileAttribution: tileAttribution ?? this.tileAttribution,
       tileMaxNativeZoom: tileMaxNativeZoom ?? this.tileMaxNativeZoom,
+      tileIsDark: tileIsDark ?? this.tileIsDark,
     );
   }
 
   @override
   ZetColors lerp(ThemeExtension<ZetColors>? other, double t) {
     if (other is! ZetColors) return this;
+    Color l(Color a, Color b) => Color.lerp(a, b, t)!;
     return ZetColors(
       brightness: t < 0.5 ? brightness : other.brightness,
-      bg: Color.lerp(bg, other.bg, t)!,
-      panel: Color.lerp(panel, other.panel, t)!,
-      panelAlt: Color.lerp(panelAlt, other.panelAlt, t)!,
-      border: Color.lerp(border, other.border, t)!,
-      borderStrong: Color.lerp(borderStrong, other.borderStrong, t)!,
-      accent: Color.lerp(accent, other.accent, t)!,
-      accentDim: Color.lerp(accentDim, other.accentDim, t)!,
-      textHi: Color.lerp(textHi, other.textHi, t)!,
-      text: Color.lerp(text, other.text, t)!,
-      textDim: Color.lerp(textDim, other.textDim, t)!,
-      tram: Color.lerp(tram, other.tram, t)!,
-      bus: Color.lerp(bus, other.bus, t)!,
-      danger: Color.lerp(danger, other.danger, t)!,
-      ok: Color.lerp(ok, other.ok, t)!,
+      bg: l(bg, other.bg),
+      panel: l(panel, other.panel),
+      panelAlt: l(panelAlt, other.panelAlt),
+      border: l(border, other.border),
+      borderStrong: l(borderStrong, other.borderStrong),
+      accent: l(accent, other.accent),
+      accentDim: l(accentDim, other.accentDim),
+      textHi: l(textHi, other.textHi),
+      text: l(text, other.text),
+      textDim: l(textDim, other.textDim),
+      primary: l(primary, other.primary),
+      onPrimary: l(onPrimary, other.onPrimary),
+      primaryContainer: l(primaryContainer, other.primaryContainer),
+      onPrimaryContainer: l(onPrimaryContainer, other.onPrimaryContainer),
+      tram: l(tram, other.tram),
+      onTram: l(onTram, other.onTram),
+      bus: l(bus, other.bus),
+      onBus: l(onBus, other.onBus),
+      danger: l(danger, other.danger),
+      ok: l(ok, other.ok),
+      warn: l(warn, other.warn),
+      live: l(live, other.live),
+      liveContainer: l(liveContainer, other.liveContainer),
+      onLiveContainer: l(onLiveContainer, other.onLiveContainer),
+      inverse: l(inverse, other.inverse),
+      onInverse: l(onInverse, other.onInverse),
       tileUrl: t < 0.5 ? tileUrl : other.tileUrl,
       tileLabelsUrl: t < 0.5 ? tileLabelsUrl : other.tileLabelsUrl,
       tileSubdomains: t < 0.5 ? tileSubdomains : other.tileSubdomains,
       tileAttribution: t < 0.5 ? tileAttribution : other.tileAttribution,
       tileMaxNativeZoom:
           t < 0.5 ? tileMaxNativeZoom : other.tileMaxNativeZoom,
+      tileIsDark: t < 0.5 ? tileIsDark : other.tileIsDark,
     );
   }
 }
@@ -192,21 +296,40 @@ class ZetColors extends ThemeExtension<ZetColors> {
 /// Monospace is the visual identity of the app (LED board / timetable).
 const String kMono = 'monospace';
 
+/// Tabular figures for every number that ticks (ETA, feed age, clock times) so
+/// the layout never jitters as digits change width.
+const List<FontFeature> kTabular = [FontFeature.tabularFigures()];
+
 ThemeData buildZetTheme(Brightness brightness) {
   final c = brightness == Brightness.dark ? ZetColors.dark : ZetColors.light;
 
   final scheme = ColorScheme(
     brightness: brightness,
-    primary: c.accent,
-    onPrimary: brightness == Brightness.dark ? const Color(0xFF1A1000) : Colors.white,
+    primary: c.primary,
+    onPrimary: c.onPrimary,
+    primaryContainer: c.primaryContainer,
+    onPrimaryContainer: c.onPrimaryContainer,
     secondary: c.tram,
-    onSecondary: Colors.white,
+    onSecondary: c.onTram,
+    secondaryContainer: c.panelAlt,
+    onSecondaryContainer: c.text,
+    tertiary: c.bus,
+    onTertiary: c.onBus,
     error: c.danger,
     onError: Colors.white,
-    surface: c.panel,
+    errorContainer: c.liveContainer,
+    onErrorContainer: c.onLiveContainer,
+    surface: c.bg,
     onSurface: c.text,
-    surfaceContainerHighest: c.panelAlt,
+    surfaceContainer: c.panelAlt,
+    surfaceContainerHigh: c.panel,
+    surfaceContainerHighest: c.panel,
+    onSurfaceVariant: c.textDim,
     outline: c.border,
+    outlineVariant: c.borderStrong,
+    inverseSurface: c.inverse,
+    onInverseSurface: c.onInverse,
+    scrim: Colors.black,
   );
 
   final base = ThemeData(
@@ -227,68 +350,140 @@ ThemeData buildZetTheme(Brightness brightness) {
       displayColor: c.text,
       fontFamily: kMono,
     ),
-    iconTheme: IconThemeData(color: c.textDim, size: 20),
-    dividerTheme: DividerThemeData(color: c.border, thickness: 1, space: 1),
+    iconTheme: IconThemeData(color: c.textDim, size: 24),
+    dividerTheme:
+        DividerThemeData(color: c.borderStrong, thickness: 1, space: 1),
+    appBarTheme: AppBarTheme(
+      backgroundColor: c.bg,
+      foregroundColor: c.text,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      centerTitle: false,
+    ),
     tabBarTheme: TabBarThemeData(
-      labelColor: c.accent,
+      labelColor: c.primary,
       unselectedLabelColor: c.textDim,
-      indicatorColor: c.accent,
-      dividerColor: c.border,
+      indicatorColor: c.primary,
+      dividerColor: c.borderStrong,
       labelStyle: const TextStyle(
-        fontSize: 11,
-        letterSpacing: 1.2,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
         fontFamily: kMono,
-        fontWeight: FontWeight.w700,
       ),
       unselectedLabelStyle: const TextStyle(
-        fontSize: 11,
+        fontSize: 14,
         fontFamily: kMono,
-        letterSpacing: 1.2,
       ),
     ),
     bottomSheetTheme: BottomSheetThemeData(
-      backgroundColor: c.panel,
+      backgroundColor: c.bg,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-        side: BorderSide(color: c.border),
+      modalBackgroundColor: c.bg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(ZetRadius.sheet)),
       ),
+      dragHandleColor: c.border,
+      dragHandleSize: const Size(32, 4),
+      showDragHandle: true,
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: c.panel,
+      backgroundColor: c.bg,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: c.border),
+        borderRadius: BorderRadius.circular(ZetRadius.card),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: c.panelAlt,
-      contentTextStyle: TextStyle(color: c.text, fontFamily: kMono, fontSize: 12),
+      backgroundColor: c.inverse,
+      contentTextStyle:
+          TextStyle(color: c.onInverse, fontFamily: kMono, fontSize: 14),
       behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ZetRadius.chip),
+      ),
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: c.panel,
       surfaceTintColor: Colors.transparent,
-      textStyle: TextStyle(color: c.text, fontFamily: kMono, fontSize: 12),
+      textStyle: TextStyle(color: c.text, fontFamily: kMono, fontSize: 14),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: c.border),
+        borderRadius: BorderRadius.circular(ZetRadius.zoom),
       ),
     ),
-    progressIndicatorTheme: ProgressIndicatorThemeData(color: c.accent),
+    chipTheme: ChipThemeData(
+      backgroundColor: c.panel,
+      selectedColor: c.primaryContainer,
+      side: BorderSide(color: c.border),
+      labelStyle: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+        color: c.text,
+        fontFamily: kMono,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ZetRadius.chip),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: c.primary,
+        foregroundColor: c.onPrimary,
+        textStyle: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          fontFamily: kMono,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ZetRadius.pill),
+        ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: c.primary,
+        side: BorderSide(color: c.border),
+        textStyle: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          fontFamily: kMono,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ZetRadius.pill),
+        ),
+      ),
+    ),
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: ButtonStyle(
+        textStyle: const WidgetStatePropertyAll(
+          TextStyle(fontSize: 14, fontFamily: kMono),
+        ),
+        backgroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? c.primaryContainer
+              : c.panel,
+        ),
+        foregroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? c.onPrimaryContainer
+              : c.text,
+        ),
+        side: WidgetStatePropertyAll(BorderSide(color: c.border)),
+      ),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: c.primary),
   );
 }
 
 /// Status bar / navigation bar styling that matches the active theme.
 SystemUiOverlayStyle zetSystemOverlay(Brightness brightness) {
   final dark = brightness == Brightness.dark;
+  final c = dark ? ZetColors.dark : ZetColors.light;
   return SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
     statusBarBrightness: dark ? Brightness.dark : Brightness.light,
-    systemNavigationBarColor:
-        dark ? const Color(0xFF0D0D0D) : const Color(0xFFF1EDE2),
+    systemNavigationBarColor: c.bg,
     systemNavigationBarIconBrightness:
         dark ? Brightness.light : Brightness.dark,
   );

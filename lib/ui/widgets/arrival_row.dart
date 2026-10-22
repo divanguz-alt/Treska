@@ -1,96 +1,88 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../core/tokens.dart';
 import '../../data/models.dart';
+import '../arrival_group.dart';
 import 'pulse.dart';
 
+/// One grouped departure row: badge · destination + status · ETA.
+///
+/// Layout follows the handoff's `52dp | 1fr | auto` grid with a 14 dp gap: a
+/// route badge, the headsign with a state dot and delay, then either the
+/// „Stiže“ pill (ETA ≤ 45 s) or the minutes, with the following two departures
+/// underneath.
 class ArrivalRowWidget extends StatelessWidget {
-  final Arrival arrival;
+  final ArrivalGroup group;
   final DateTime now;
   final bool isLast;
+  final VoidCallback? onTap;
 
   const ArrivalRowWidget({
     super.key,
-    required this.arrival,
+    required this.group,
     required this.now,
     this.isLast = false,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    final seconds = arrival.secondsUntil(now);
-    final isRealtime = arrival.isRealtime;
-    final isEstimated = arrival.isEstimated;
+    final next = group.next;
+    final seconds = next.secondsUntil(now);
+    final isTram = group.isTram;
+    final badgeColor = isTram ? colors.tram : colors.bus;
+    final badgeInk = isTram ? colors.onTram : colors.onBus;
 
-    final routeColor = isRealtime
-        ? colors.textHi
-        : (isEstimated ? colors.accent : colors.textDim);
-    final headsignColor = isRealtime
-        ? colors.text
-        : (isEstimated
-            ? colors.text.withValues(alpha: 0.86)
-            : colors.textDim);
-
+    final spoken = _spokenTime(seconds, next.source);
     return Semantics(
-      label: '${arrival.routeShortName} prema ${arrival.headsign}, '
-          '${_spokenTime(seconds, arrival.source)}',
+      label: '${group.routeShortName} prema ${group.headsign}, $spoken',
+      button: onTap != null,
       excludeSemantics: true,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: isLast ? Colors.transparent : colors.border,
-              width: 1,
-            ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(ZetRadius.card),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: ZetSpace.md,
+            vertical: ZetSpace.md,
           ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 42,
-              child: Text(
-                arrival.routeShortName,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                style: TextStyle(
-                  fontSize: arrival.routeShortName.length > 2 ? 17 : 20,
-                  fontWeight: FontWeight.w900,
-                  color: routeColor,
-                  height: 1.1,
-                  fontFamily: kMono,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _RouteBadge(
+                label: group.routeShortName,
+                color: badgeColor,
+                ink: badgeInk,
+                isTram: isTram,
+              ),
+              const SizedBox(width: ZetSpace.row),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      group.headsign.isEmpty ? '—' : group.headsign,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: colors.text,
+                        fontFamily: kMono,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    _StatusLine(group: group, now: now),
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                arrival.headsign.isEmpty
-                    ? '—'
-                    : arrival.headsign.toUpperCase(),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: headsignColor,
-                  height: 1.25,
-                  letterSpacing: 0.2,
-                  fontFamily: kMono,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            _TimeLabel(
-              seconds: seconds,
-              source: arrival.source,
-              minutes: arrival.minutesUntil(now),
-              time: arrival.time,
-              delaySec: arrival.delaySec,
-            ),
-          ],
+              const SizedBox(width: ZetSpace.md),
+              _EtaBlock(group: group, now: now),
+            ],
+          ),
         ),
       ),
     );
@@ -98,153 +90,266 @@ class ArrivalRowWidget extends StatelessWidget {
 
   String _spokenTime(int seconds, ArrivalSource source) {
     final realtime = source == ArrivalSource.realtime;
-    final estimate = source == ArrivalSource.estimated ? ', procjena' : '';
+    if (seconds <= 45 && realtime) return 'stiže';
     if (seconds < 60) return realtime ? 'dolazi' : 'sada';
+    final estimate = source == ArrivalSource.estimated ? ', procjena' : '';
     return 'za ${(seconds / 60).ceil()} minuta$estimate';
   }
 }
 
-class _TimeLabel extends StatelessWidget {
-  final int seconds;
-  final int minutes;
-  final ArrivalSource source;
-  final DateTime time;
-  final int delaySec;
+/// 52 × 40 badge: tram is a full pill, bus a rounded rectangle.
+class _RouteBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+  final Color ink;
+  final bool isTram;
 
-  const _TimeLabel({
-    required this.seconds,
-    required this.source,
-    required this.minutes,
-    required this.time,
-    required this.delaySec,
+  const _RouteBadge({
+    required this.label,
+    required this.color,
+    required this.ink,
+    required this.isTram,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.zet;
-    final realtime = source == ArrivalSource.realtime;
-    final estimated = source == ArrivalSource.estimated;
-
-    if (realtime && seconds < 60) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          PulseDot(size: 5, color: colors.danger),
-          const SizedBox(width: 4),
-          Text(
-            'DOLAZI',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              color: colors.danger,
-              letterSpacing: 0.6,
-              fontFamily: kMono,
-            ),
-          ),
-        ],
-      );
-    }
-
-    if (!realtime && !estimated && seconds < 90) {
-      return Text(
-        'SADA',
+    return Container(
+      width: 52,
+      height: 40,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(isTram ? 20 : 10),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
         style: TextStyle(
-          fontSize: 11,
+          fontSize: 18,
           fontWeight: FontWeight.w700,
-          color: colors.accentDim,
-          letterSpacing: 0.6,
+          color: ink,
+          height: 1,
           fontFamily: kMono,
+          fontFeatures: kTabular,
         ),
-      );
-    }
+      ),
+    );
+  }
+}
 
-    if (!realtime && !estimated) {
-      return Text(
-        '~${hhmm(time)}',
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: colors.textDim,
-          fontFeatures: const [FontFeature.tabularFigures()],
-          fontFamily: kMono,
-        ),
-      );
-    }
+/// „• Tramvaj · kasni 3 min“ — the state dot, mode name and (for live only) the
+/// delay.
+class _StatusLine extends StatelessWidget {
+  final ArrivalGroup group;
+  final DateTime now;
 
-    final delayMin = (delaySec.abs() / 60).round();
-    final showDelay = delayMin >= 1;
-    final delayColor = delaySec > 0 ? colors.danger : colors.ok;
+  const _StatusLine({required this.group, required this.now});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    final source = group.bestSource;
+    final mode = group.isTram ? 'Tramvaj' : 'Autobus';
+    final delaySec = group.next.delaySec;
 
     return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        if (showDelay) ...[
-          _DelayChip(
-            label: '${delaySec > 0 ? '+' : '-'}$delayMin\'',
-            color: delayColor,
-          ),
-          const SizedBox(width: 5),
-        ],
-        if (estimated)
-          Text(
-            '≈',
+        _StateDot(source: source),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            mode,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: colors.accentDim,
+              color: colors.textDim,
               fontFamily: kMono,
             ),
           ),
-        Text(
-          '$minutes',
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w900,
-            color: estimated ? colors.accent : colors.textHi,
-            height: 1,
-            fontFamily: kMono,
+        ),
+        if (source != ArrivalSource.scheduled && delaySec != 0) ...[
+          Text(
+            ' · ',
+            style: TextStyle(fontSize: 13, color: colors.textDim),
+          ),
+          Text(
+            _delayLabel(delaySec),
+            style: TextStyle(
+              fontSize: 13,
+              color: delaySec > 60 ? colors.warn : colors.ok,
+              fontFamily: kMono,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _delayLabel(int delaySec) {
+    final min = (delaySec.abs() / 60).round();
+    if (min < 1) return 'na vrijeme';
+    return delaySec > 0 ? 'kasni $min min' : '$min min ranije';
+  }
+}
+
+/// Live = solid green, estimate = hollow ring, schedule = solid outline.
+class _StateDot extends StatelessWidget {
+  final ArrivalSource source;
+  const _StateDot({required this.source});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return switch (source) {
+      ArrivalSource.realtime => Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: colors.ok),
+        ),
+      ArrivalSource.estimated => Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: colors.textDim, width: 1.4),
           ),
         ),
-        Text(
-          ' MIN',
-          style: TextStyle(
-            fontSize: 9,
-            fontWeight: FontWeight.w700,
-            color: colors.accentDim,
-            letterSpacing: 0.4,
-            fontFamily: kMono,
+      ArrivalSource.scheduled => Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: colors.border,
           ),
         ),
+    };
+  }
+}
+
+/// Right side: „Stiže“ pill, or minutes (with „≈“ for estimates), plus the
+/// following two departures.
+class _EtaBlock extends StatelessWidget {
+  final ArrivalGroup group;
+  final DateTime now;
+
+  const _EtaBlock({required this.group, required this.now});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    final next = group.next;
+    final seconds = next.secondsUntil(now);
+    final realtime = next.isRealtime;
+    final estimated = next.isEstimated;
+
+    final untilNext = group.arrivals.skip(1).map((a) {
+      final s = a.secondsUntil(now);
+      return s <= 45 ? 'sada' : '${(s / 60).ceil()}';
+    }).toList(growable: false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (realtime && seconds <= 45)
+          const _ArrivingPill()
+        else if (!realtime && !estimated)
+          Text(
+            hhmm(next.time),
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+              color: colors.textDim,
+              height: 1.05,
+              fontFamily: kMono,
+              fontFeatures: kTabular,
+            ),
+          )
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (estimated)
+                Text(
+                  '≈',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: colors.textDim,
+                    fontFamily: kMono,
+                  ),
+                ),
+              Text(
+                '${next.minutesUntil(now)}',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w600,
+                  color: colors.text,
+                  height: 1.05,
+                  fontFamily: kMono,
+                  fontFeatures: kTabular,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Text(
+                'min',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colors.textDim,
+                  fontFamily: kMono,
+                ),
+              ),
+            ],
+          ),
+        if (untilNext.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              'zatim ${untilNext.join(', ')} min',
+              style: TextStyle(
+                fontSize: 12,
+                color: colors.textDim,
+                fontFamily: kMono,
+                fontFeatures: kTabular,
+              ),
+            ),
+          ),
       ],
     );
   }
 }
 
-class _DelayChip extends StatelessWidget {
-  final String label;
-  final Color color;
-
-  const _DelayChip({required this.label, required this.color});
+/// Red „Stiže“ pill with a pulsing dot.
+class _ArrivingPill extends StatelessWidget {
+  const _ArrivingPill();
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.zet;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: ZetSpace.md),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(2),
-        border: Border.all(color: color.withValues(alpha: 0.45), width: 0.5),
+        color: colors.liveContainer,
+        borderRadius: BorderRadius.circular(ZetRadius.pill),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 8,
-          fontWeight: FontWeight.w700,
-          color: color,
-          height: 1,
-          fontFamily: kMono,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PulseDot(size: 7, color: colors.live, minOpacity: 0.2),
+          const SizedBox(width: 6),
+          Text(
+            'Stiže',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: colors.onLiveContainer,
+              fontFamily: kMono,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -91,6 +91,7 @@ class FeedEngine {
     required Uint8List? rtBytes,
     required DateTime now,
     RtFeed? rtFeed,
+    double radiusM = searchRadiusM,
   }) {
     final sw = Stopwatch()..start();
 
@@ -104,7 +105,7 @@ class FeedEngine {
     for (var i = 0; i < data.stops.length; i++) {
       final s = data.stops[i];
       final d = haversineM(lat, lon, s.lat, s.lon);
-      if (d > searchRadiusM) continue;
+      if (d > radiusM) continue;
       candidates.add(_CandidateStop(i, d));
     }
     candidates.sort((a, b) => a.distanceM.compareTo(b.distanceM));
@@ -279,7 +280,15 @@ class FeedEngine {
     }
 
     // ── Vehicles ───────────────────────────────────────────────────────────
+    //
+    // Only real GPS fixes become map vehicles. ZET's feed carries ~440 trip
+    // updates against ~260 vehicle positions: a trip update says "this trip is
+    // running with this delay", not "this bus is here". Inventing a dot from the
+    // timetable would nearly double the count (263 real → ~454 drawn) and would
+    // put markers on the map that no vehicle ever reported. Trip updates still
+    // drive arrival predictions and per-trip delays below.
     final vehicles = <Vehicle>[...direct];
+    final estimatedVehicles = <Vehicle>[];
 
     void addPending(_PendingVehicle p) {
       if (p.tripId.isEmpty) return;
@@ -329,7 +338,7 @@ class FeedEngine {
       if (routeIdx == null) return;
       final route = data.routes[routeIdx];
 
-      vehicles.add(Vehicle(
+      estimatedVehicles.add(Vehicle(
         routeShortName: route.shortName,
         routeType: route.type,
         lat: stop.lat,
@@ -408,6 +417,7 @@ class FeedEngine {
       vehicles: vehicleCount,
       vehiclesTram: tramVehicles,
       vehiclesBus: vehicleCount - tramVehicles,
+      estimatedVehicles: estimatedVehicles.length,
       rtArrivals: rtArrivalCount,
       estimatedArrivals: estimatedCount,
       scheduledArrivals: scheduledCount,
@@ -424,9 +434,11 @@ class FeedEngine {
       tramStops: tramStops,
       busStops: busStops,
       vehicles: vehicles,
+      estimatedVehicles: estimatedVehicles,
       stats: stats,
       updatedAt: now,
       error: error,
+      radiusM: radiusM,
     );
   }
 
@@ -621,5 +633,69 @@ class FeedEngine {
       }
     }
     return lo;
+  }
+
+  /// Ordered stop timeline of the next trip that (a) serves [stopId], (b) has
+  /// route [routeShortName] and [headsign] and (c) departs at or after
+  /// [afterUnix]. Returns null when nothing matches — the details screen then
+  /// falls back to just the ETA card.
+  TripTimeline? tripStops({
+    required String routeShortName,
+    required String headsign,
+    required String stopId,
+    required int afterUnix,
+    required DateTime now,
+  }) {
+    final fromStop = data.stopIdx[stopId];
+    if (fromStop == null) return null;
+
+    final deps = data.departures[fromStop];
+    if (deps.arrivalSec.isEmpty) return null;
+
+    final midnight = DateTime(now.year, now.month, now.day);
+    final midnightUnix = midnight.millisecondsSinceEpoch;
+    final nowSec = now.hour * 3600 + now.minute * 60 + now.second;
+
+    // Seconds-of-day the caller asked to start from.
+    final afterSec =
+        ((afterUnix - midnightUnix ~/ 1000).clamp(0, 200000)).toInt();
+
+    final startSec = StaticData.lowerBound(deps.arrivalSec, afterSec - 60);
+
+    for (var i = startSec; i < deps.arrivalSec.length; i++) {
+      final trip = deps.tripIdx[i];
+      final routeIdx = data.tripRoute[trip];
+      if (routeIdx < 0 || routeIdx >= data.routes.length) continue;
+      final route = data.routes[routeIdx];
+      if (route.shortName != routeShortName) continue;
+      if (_headsignFor(trip) != headsign) continue;
+
+      final pattern = data.patterns[trip];
+      final out = <TripStop>[];
+      for (var p = 0; p < pattern.stopIdx.length; p++) {
+        final si = pattern.stopIdx[p];
+        if (si < 0 || si >= data.stops.length) continue;
+        final stop = data.stops[si];
+        final sec = pattern.departureSec[p];
+        final time = DateTime.fromMillisecondsSinceEpoch(
+          midnightUnix + sec * 1000,
+          isUtc: false,
+        );
+        out.add(TripStop(
+          stopId: stop.stopId,
+          name: stop.name,
+          lat: stop.lat,
+          lon: stop.lon,
+          time: time,
+          passed: sec < nowSec,
+        ));
+      }
+      if (out.isEmpty) continue;
+
+      // The chosen trip must include the requested stop.
+      if (!out.any((s) => s.stopId == stopId)) continue;
+      return TripTimeline(routeType: route.type, stops: out);
+    }
+    return null;
   }
 }

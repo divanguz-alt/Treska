@@ -3,25 +3,38 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../core/theme.dart';
+import '../core/tokens.dart';
 import '../data/feed_controller.dart';
 import '../data/models.dart';
+import '../settings_controller.dart';
 import '../theme_controller.dart';
 import 'diagnostics_sheet.dart';
+import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'widgets/pulse.dart';
-import 'widgets/timer_builder.dart';
 import 'widgets/vehicle_marker.dart';
 
 class MapPanel extends StatefulWidget {
   final FeedController feed;
   final ThemeController themeController;
+  final SettingsController settings;
   final int mode; // kModeTram or kModeBus
+
+  /// How much of the screen the bottom sheet covers (0..1), used to keep the
+  /// zoom controls and FAB just above it.
+  final double sheetFraction;
+
+  /// Sheet height in pixels; the map's centre offset and fit padding use it.
+  final double bottomInsetPx;
 
   const MapPanel({
     super.key,
     required this.feed,
     required this.themeController,
+    required this.settings,
     required this.mode,
+    this.sheetFraction = 0,
+    this.bottomInsetPx = 0,
   });
 
   @override
@@ -61,7 +74,7 @@ class _MapPanelState extends State<MapPanel> {
     if (!_centered && pos.gps) {
       _centered = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _map.move(center, 14.5);
+        if (mounted) _map.move(center, 15);
       });
     }
   }
@@ -84,7 +97,13 @@ class _MapPanelState extends State<MapPanel> {
   void _recenter() {
     final pos = widget.feed.position.value;
     setState(() => _followUser = true);
-    _map.move(LatLng(pos.lat, pos.lon), 14.5);
+    _map.move(LatLng(pos.lat, pos.lon), 15);
+  }
+
+  void _zoom(double delta) {
+    final camera = _map.camera;
+    final next = (camera.zoom + delta).clamp(11.0, 18.0);
+    _map.move(camera.center, next);
   }
 
   List<CircleMarker> _circlesFor(
@@ -96,24 +115,17 @@ class _MapPanelState extends State<MapPanel> {
       return _stopCircles;
     }
     final colors = context.zet;
-    final dark = colors.isDark;
-    final fill = dark
-        ? Colors.white.withValues(alpha: 0.22)
-        : Colors.black.withValues(alpha: 0.22);
-    final border = dark
-        ? Colors.white.withValues(alpha: 0.45)
-        : Colors.black.withValues(alpha: 0.45);
-
+    // Handoff: idle stop is a 12 dp disc — surface fill with an ink2 ring.
     _stopCircles = [
       for (final s in all)
         if (s.serves(mode))
           CircleMarker(
             point: LatLng(s.lat, s.lon),
-            radius: 3.4,
+            radius: 5.5,
             useRadiusInMeter: false,
-            color: fill,
-            borderColor: border,
-            borderStrokeWidth: 1,
+            color: colors.bg.withValues(alpha: 0.85),
+            borderColor: colors.textDim.withValues(alpha: 0.9),
+            borderStrokeWidth: 1.6,
           ),
     ];
     _circlesMode = mode;
@@ -124,6 +136,7 @@ class _MapPanelState extends State<MapPanel> {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
+    final bottomInset = widget.bottomInsetPx;
 
     return Stack(
       children: [
@@ -133,6 +146,7 @@ class _MapPanelState extends State<MapPanel> {
               widget.feed.vehicles,
               widget.feed.stops,
               widget.feed.position,
+              widget.settings,
             ]),
             builder: (context, _) {
               final pos = widget.feed.position.value;
@@ -142,14 +156,15 @@ class _MapPanelState extends State<MapPanel> {
                   .toList(growable: false);
               final circles =
                   _circlesFor(context, widget.feed.stops.value, widget.mode);
+              final radius = widget.settings.radiusM;
 
               return FlutterMap(
                 mapController: _map,
                 options: MapOptions(
                   initialCenter: center,
-                  initialZoom: 14.5,
-                  minZoom: 10,
-                  maxZoom: 19,
+                  initialZoom: 15,
+                  minZoom: 11,
+                  maxZoom: 18,
                   backgroundColor: colors.bg,
                   interactionOptions: const InteractionOptions(
                     flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
@@ -180,33 +195,34 @@ class _MapPanelState extends State<MapPanel> {
                       errorTileCallback: (_, _, _) => _onTileError(),
                     ),
                   CircleLayer(circles: circles),
+                  // 800 m (or 400/1200) walking radius around the user.
+                  CircleLayer(circles: [
+                    CircleMarker(
+                      point: center,
+                      radius: radius,
+                      useRadiusInMeter: true,
+                      color: colors.primary.withValues(alpha: 0.05),
+                      borderColor: colors.primary.withValues(alpha: 0.55),
+                      borderStrokeWidth: 1.5,
+                    ),
+                  ]),
                   MarkerLayer(
                     markers: [
                       for (final v in vehicles)
                         Marker(
                           point: LatLng(v.lat, v.lon),
-                          width: 42,
-                          height: 42,
+                          width: 46,
+                          height: 40,
                           alignment: Alignment.center,
                           child: VehicleMarkerWidget(vehicle: v),
                         ),
                     ],
                   ),
-                  CircleLayer(circles: [
-                    CircleMarker(
-                      point: center,
-                      radius: 800,
-                      useRadiusInMeter: true,
-                      color: colors.accent.withValues(alpha: 0.05),
-                      borderColor: colors.accent.withValues(alpha: 0.28),
-                      borderStrokeWidth: 1,
-                    ),
-                  ]),
                   MarkerLayer(markers: [
                     Marker(
                       point: center,
-                      width: 30,
-                      height: 30,
+                      width: 34,
+                      height: 34,
                       alignment: Alignment.center,
                       child: _UserMarker(gps: pos.gps),
                     ),
@@ -217,42 +233,62 @@ class _MapPanelState extends State<MapPanel> {
           ),
         ),
 
+        // Search bar + live chip, pinned to the top.
         Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: _MapHeader(
-            feed: widget.feed,
-            themeController: widget.themeController,
+          top: MediaQuery.of(context).padding.top + ZetSpace.sm,
+          left: ZetSpace.lg,
+          right: ZetSpace.lg,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SearchBar(
+                feed: widget.feed,
+                themeController: widget.themeController,
+                settings: widget.settings,
+              ),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _LiveChip(feed: widget.feed),
+                  const SizedBox(width: ZetSpace.sm),
+                  MapDiagnosticsButton(feed: widget.feed),
+                ],
+              ),
+            ],
           ),
         ),
 
+        // Zoom controls, above the sheet.
         Positioned(
-          left: 8,
-          bottom: 8,
-          child: _MapButton(
-            icon: _followUser ? Icons.my_location : Icons.location_searching,
+          right: ZetSpace.xl,
+          bottom: bottomInset + ZetSpace.lg + 56 + ZetSpace.md,
+          child: _ZoomControls(
+            onIn: () => _zoom(1),
+            onOut: () => _zoom(-1),
+          ),
+        ),
+
+        // Location FAB, just above the sheet.
+        Positioned(
+          right: ZetSpace.lg,
+          bottom: bottomInset + ZetSpace.lg,
+          child: _LocationFab(
+            following: _followUser,
             onTap: _recenter,
-            tooltip: 'Centriraj na moju lokaciju',
           ),
         ),
 
         Positioned(
-          left: 52,
-          bottom: 12,
+          left: ZetSpace.sm,
+          bottom: bottomInset + ZetSpace.sm,
           child: _Attribution(colors: colors),
-        ),
-
-        Positioned(
-          right: 8,
-          bottom: 8,
-          child: _Legend(mode: widget.mode),
         ),
 
         if (_tilesFailed)
           Positioned(
-            left: 52,
-            bottom: 52,
+            left: ZetSpace.xl,
+            bottom: bottomInset + ZetSpace.xxl + ZetSpace.lg,
             child: _TileErrorChip(onTap: _retryTiles),
           ),
       ],
@@ -260,28 +296,28 @@ class _MapPanelState extends State<MapPanel> {
   }
 }
 
-/// Required credit for the tile provider. Kept tiny so it does not fight the
-/// LED-board look.
+/// Required credit for the tile provider.
 class _Attribution extends StatelessWidget {
   final ZetColors colors;
   const _Attribution({required this.colors});
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.panel.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(2),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Text(
-          colors.isDark ? '© Esri · OSM' : '© OpenStreetMap',
-          style: TextStyle(
-            fontSize: 7,
-            color: colors.textDim,
-            letterSpacing: 0.2,
-            fontFamily: kMono,
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.bg.withValues(alpha: 0.66),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          child: Text(
+            colors.isDark ? '© Esri · OSM' : '© OpenStreetMap',
+            style: TextStyle(
+              fontSize: 9,
+              color: colors.textDim,
+              fontFamily: kMono,
+            ),
           ),
         ),
       ),
@@ -298,28 +334,30 @@ class _TileErrorChip extends StatelessWidget {
     final colors = context.zet;
     return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(ZetRadius.chip),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        padding: const EdgeInsets.symmetric(
+            horizontal: ZetSpace.md, vertical: ZetSpace.sm),
         decoration: BoxDecoration(
-          color: colors.panel.withValues(alpha: 0.94),
+          color: colors.bg.withValues(alpha: 0.94),
           border: Border.all(color: colors.danger.withValues(alpha: 0.6)),
+          borderRadius: BorderRadius.circular(ZetRadius.chip),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.map_outlined, size: 11, color: colors.danger),
-            const SizedBox(width: 5),
+            Icon(Icons.map_outlined, size: 14, color: colors.danger),
+            const SizedBox(width: 6),
             Text(
-              'KARTA SE NE UČITAVA',
+              'Karta se ne učitava',
               style: TextStyle(
-                fontSize: 8,
+                fontSize: 13,
                 color: colors.danger,
-                letterSpacing: 0.8,
                 fontFamily: kMono,
               ),
             ),
             const SizedBox(width: 6),
-            Icon(Icons.refresh, size: 11, color: colors.danger),
+            Icon(Icons.refresh, size: 14, color: colors.danger),
           ],
         ),
       ),
@@ -327,6 +365,7 @@ class _TileErrorChip extends StatelessWidget {
   }
 }
 
+/// Blue dot with a halo; dimmed when there is no GPS fix.
 class _UserMarker extends StatelessWidget {
   final bool gps;
   const _UserMarker({required this.gps});
@@ -334,286 +373,24 @@ class _UserMarker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
+    final dot = colors.primary;
     return Container(
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: colors.danger.withValues(alpha: 0.18),
-        border: Border.all(
-          color: colors.danger.withValues(alpha: gps ? 0.9 : 0.45),
-          width: 1.5,
-        ),
+        color: dot.withValues(alpha: 0.20),
       ),
       alignment: Alignment.center,
       child: Container(
-        width: 8,
-        height: 8,
+        width: 14,
+        height: 14,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: colors.danger.withValues(alpha: gps ? 1 : 0.5),
-        ),
-      ),
-    );
-  }
-}
-
-class _MapHeader extends StatelessWidget {
-  final FeedController feed;
-  final ThemeController themeController;
-
-  const _MapHeader({required this.feed, required this.themeController});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.zet;
-
-    return ListenableBuilder(
-      listenable: Listenable.merge([feed.status, feed.snapshot]),
-      builder: (context, _) {
-        final status = feed.status.value;
-        final snapshot = feed.snapshot.value;
-        final stats = snapshot?.stats ?? const FeedStats();
-        final updated = snapshot?.updatedAt;
-        final stale = updated == null ||
-            DateTime.now().difference(updated) > const Duration(seconds: 45);
-        final label = '${stats.vehicles} vozila';
-
-        // Honest freshness: how old the newest vehicle fix is right now, no
-        // matter which channel delivered it. A stalled feed keeps counting up.
-        final feedAge =
-            stats.feedTimestamp > 0 ? stats.ageSecAt(DateTime.now()) : -1;
-        final ageColor = feedAge < 0
-            ? colors.textDim
-            : (feedAge > 150 ? colors.danger : colors.textDim);
-
-        // The age is a live clock, not a value that changes only on refresh, so
-        // re-render this header once a second while the map is visible.
-        return TimerBuilder(
-          interval: const Duration(seconds: 1),
-          builder: (context) => _buildBody(
-            context,
-            colors,
-            status,
-            stats,
-            updated,
-            stale,
-            label,
-            feedAge,
-            ageColor,
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildBody(
-    BuildContext context,
-    ZetColors colors,
-    FeedStatus status,
-    FeedStats stats,
-    DateTime? updated,
-    bool stale,
-    String label,
-    int feedAge,
-    Color ageColor,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.bg.withValues(alpha: 0.86),
-        border: Border(bottom: BorderSide(color: colors.border)),
-      ),
-      padding: const EdgeInsets.fromLTRB(10, 5, 4, 5),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              PulseDot(
-                size: 6,
-                color: stale ? colors.danger : colors.accent,
-                minOpacity: 0.3,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'TRESKA',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: colors.accent,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.4,
-                  fontFamily: kMono,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: colors.textDim,
-                    letterSpacing: 0.4,
-                    fontFamily: kMono,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              if (!status.gps) _GpsChip(onTap: feed.retryLocation),
-              _ThemeButton(controller: themeController),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                tooltip: 'Dijagnostika',
-                iconSize: 18,
-                color: colors.textDim,
-                onPressed: () => showDiagnostics(context, feed),
-                icon: const Icon(Icons.info_outline),
-              ),
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                tooltip: 'Postavke',
-                iconSize: 18,
-                color: colors.textDim,
-                onPressed: () => showSettings(
-                  context,
-                  feed: feed,
-                  themeController: themeController,
-                ),
-                icon: const Icon(Icons.settings_outlined),
-              ),
-            ],
-          ),
-          Row(
-            children: [
-              Text(
-                updated == null ? '—' : hhmmss(updated),
-                style: TextStyle(
-                  fontSize: 10,
-                  color: stale ? colors.danger : colors.textHi,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.5,
-                  fontFamily: kMono,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              const SizedBox(width: 8),
-              _FeedAgeChip(
-                ageSec: feedAge,
-                streaming: stats.streaming,
-                color: ageColor,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  status.staticReady
-                      ? '${stats.vehiclesTram}T · ${stats.vehiclesBus}B'
-                          ' · RT ${stats.rtArrivals}'
-                          ' · ≈ ${stats.estimatedArrivals}'
-                          ' · ~ ${stats.scheduledArrivals}'
-                      : status.loading,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 9,
-                    color: colors.textDim,
-                    letterSpacing: 0.2,
-                    fontFamily: kMono,
-                  ),
-                ),
-              ),
-              if (stale && updated != null)
-                Text(
-                  'ZASTARJELO',
-                  style: TextStyle(
-                    fontSize: 8,
-                    color: colors.danger,
-                    letterSpacing: 1,
-                    fontFamily: kMono,
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FeedAgeChip extends StatelessWidget {
-  final int ageSec;
-  final bool streaming;
-  final Color color;
-
-  const _FeedAgeChip({
-    required this.ageSec,
-    required this.streaming,
-    required this.color,
-  });
-
-  String get _label {
-    if (ageSec < 0) return '—';
-    if (ageSec < 10) return 'SADA';
-    return '${(ageSec / 60).floor().clamp(1, 99)} min';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.zet;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-      decoration: BoxDecoration(
-        border: Border.all(color: colors.borderStrong),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            streaming ? '◉' : '○',
-            style: TextStyle(fontSize: 7, color: color),
-          ),
-          const SizedBox(width: 3),
-          Text(
-            _label,
-            style: TextStyle(
-              fontSize: 8,
-              color: color,
-              letterSpacing: 0.6,
-              fontFamily: kMono,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GpsChip extends StatelessWidget {
-  final VoidCallback onTap;
-  const _GpsChip({required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.zet;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(3),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        margin: const EdgeInsets.only(right: 2),
-        decoration: BoxDecoration(
-          border: Border.all(color: colors.borderStrong),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.location_off, size: 10, color: colors.textDim),
-            const SizedBox(width: 3),
-            Text(
-              'GPS?',
-              style: TextStyle(
-                fontSize: 8,
-                color: colors.textDim,
-                letterSpacing: 0.8,
-                fontFamily: kMono,
-              ),
+          color: dot.withValues(alpha: gps ? 1 : 0.5),
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 4,
             ),
           ],
         ),
@@ -622,156 +399,250 @@ class _GpsChip extends StatelessWidget {
   }
 }
 
-class _ThemeButton extends StatelessWidget {
-  final ThemeController controller;
-  const _ThemeButton({required this.controller});
+/// M3 search bar (looks only) — tapping it opens the full search screen.
+class _SearchBar extends StatelessWidget {
+  final FeedController feed;
+  final ThemeController themeController;
+  final SettingsController settings;
 
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.zet;
-    final mode = controller.mode;
-    final icon = switch (mode) {
-      ThemeMode.light => Icons.light_mode,
-      ThemeMode.dark => Icons.dark_mode,
-      ThemeMode.system => Icons.brightness_auto,
-    };
-
-    return PopupMenuButton<ThemeMode>(
-      tooltip: 'Izgled',
-      padding: EdgeInsets.zero,
-      position: PopupMenuPosition.under,
-      initialValue: mode,
-      onSelected: controller.setMode,
-      icon: Icon(icon, size: 19, color: colors.textDim),
-      itemBuilder: (context) => const [
-        PopupMenuItem(
-          value: ThemeMode.system,
-          child: Text('Sustav'),
-        ),
-        PopupMenuItem(
-          value: ThemeMode.light,
-          child: Text('Svijetlo'),
-        ),
-        PopupMenuItem(
-          value: ThemeMode.dark,
-          child: Text('Tamno'),
-        ),
-      ],
-    );
-  }
-}
-
-class _MapButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final String tooltip;
-  const _MapButton({
-    required this.icon,
-    required this.onTap,
-    required this.tooltip,
+  const _SearchBar({
+    required this.feed,
+    required this.themeController,
+    required this.settings,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: colors.panel.withValues(alpha: 0.92),
-            border: Border.all(color: colors.borderStrong),
-          ),
-          child: Icon(icon, size: 19, color: colors.accent),
+    final dark = colors.isDark;
+    return Material(
+      color: colors.panel,
+      elevation: 3,
+      borderRadius: BorderRadius.circular(ZetRadius.search),
+      shadowColor: Colors.black.withValues(alpha: 0.2),
+      child: SizedBox(
+        height: 56,
+        child: Row(
+          children: [
+            const SizedBox(width: ZetSpace.lg),
+            Icon(Icons.search, size: 24, color: colors.text),
+            const SizedBox(width: ZetSpace.md),
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => showStopSearch(
+                  context,
+                  feed: feed,
+                  settings: settings,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Traži stanicu ili liniju',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: colors.textDim,
+                      fontFamily: kMono,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: dark ? 'Svijetla tema' : 'Tamna tema',
+              iconSize: 24,
+              color: colors.text,
+              onPressed: () => themeController
+                  .setMode(dark ? ThemeMode.light : ThemeMode.dark),
+              icon: Icon(dark ? Icons.light_mode : Icons.dark_mode),
+            ),
+            IconButton(
+              tooltip: 'Postavke',
+              iconSize: 24,
+              color: colors.text,
+              onPressed: () => showSettings(
+                context,
+                feed: feed,
+                themeController: themeController,
+                settings: settings,
+              ),
+              icon: const Icon(Icons.settings_outlined),
+            ),
+            const SizedBox(width: ZetSpace.xs),
+          ],
         ),
       ),
     );
   }
 }
 
-class _Legend extends StatelessWidget {
-  final int mode;
-  const _Legend({required this.mode});
+/// „Uživo“ chip: green pulsing dot, the word, and how many vehicles are live.
+class _LiveChip extends StatelessWidget {
+  final FeedController feed;
+  const _LiveChip({required this.feed});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    final modeColor = mode == kModeTram ? colors.tram : colors.bus;
+    return ListenableBuilder(
+      listenable: feed.snapshot,
+      builder: (context, _) {
+        final stats = feed.snapshot.value?.stats ?? const FeedStats();
+        final age = stats.feedTimestamp > 0
+            ? stats.ageSecAt(DateTime.now())
+            : -1;
+        final stale = age > 120 || age < 0;
+        final dot = stale ? colors.warn : colors.ok;
+        return Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: ZetSpace.md),
+          decoration: BoxDecoration(
+            color: colors.panel,
+            borderRadius: BorderRadius.circular(ZetRadius.chip),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PulseDot(size: 8, color: dot, minOpacity: 0.0),
+              const SizedBox(width: ZetSpace.sm),
+              Text(
+                stale ? 'Zastarjelo' : 'Uživo',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: colors.text,
+                  fontFamily: kMono,
+                ),
+              ),
+              const SizedBox(width: ZetSpace.sm),
+              Text(
+                '${stats.vehiclesTram} tramvaja · ${stats.vehiclesBus} autobusa',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: colors.textDim,
+                  fontFamily: kMono,
+                  fontFeatures: kTabular,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(
-        color: colors.panel.withValues(alpha: 0.92),
-        border: Border.all(color: colors.border),
+/// Vertical + / − pair in one card.
+class _ZoomControls extends StatelessWidget {
+  final VoidCallback onIn;
+  final VoidCallback onOut;
+  const _ZoomControls({required this.onIn, required this.onOut});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return Material(
+      color: colors.panel,
+      elevation: 2,
+      borderRadius: BorderRadius.circular(ZetRadius.zoom),
+      shadowColor: Colors.black.withValues(alpha: 0.18),
+      child: SizedBox(
+        width: 48,
+        child: Column(
+          children: [
+            _ZoomButton(icon: Icons.add, onTap: onIn),
+            Container(height: 1, color: colors.borderStrong),
+            _ZoomButton(icon: Icons.remove, onTap: onOut),
+          ],
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(width: 7, height: 7, color: modeColor),
-          const SizedBox(width: 4),
-          Text(
-            mode == kModeTram ? 'TRAM' : 'BUS',
-            style: TextStyle(
-              fontSize: 8,
-              color: colors.textDim,
-              letterSpacing: 0.8,
-              fontFamily: kMono,
+    );
+  }
+}
+
+class _ZoomButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _ZoomButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(ZetRadius.zoom),
+      child: SizedBox(
+        height: 44,
+        width: 48,
+        child: Icon(icon, size: 22, color: colors.text),
+      ),
+    );
+  }
+}
+
+/// M3 FAB that recentres the map on the user.
+class _LocationFab extends StatelessWidget {
+  final bool following;
+  final VoidCallback onTap;
+  const _LocationFab({required this.following, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return Tooltip(
+      message: 'Centriraj na moju lokaciju',
+      child: Material(
+        color: following ? colors.primaryContainer : colors.panel,
+        elevation: 3,
+        borderRadius: BorderRadius.circular(ZetRadius.fab),
+        shadowColor: Colors.black.withValues(alpha: 0.25),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(ZetRadius.fab),
+          child: SizedBox(
+            width: 56,
+            height: 56,
+            child: Icon(
+              following ? Icons.my_location : Icons.location_searching,
+              size: 24,
+              color: following
+                  ? colors.onPrimaryContainer
+                  : colors.text,
             ),
           ),
-          const SizedBox(width: 8),
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: colors.isDark
-                  ? Colors.white.withValues(alpha: 0.35)
-                  : Colors.black.withValues(alpha: 0.35),
-              border: Border.all(
-                color: colors.isDark
-                    ? Colors.white.withValues(alpha: 0.6)
-                    : Colors.black.withValues(alpha: 0.6),
-                width: 1,
-              ),
-            ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small square info button that opens the data-diagnostics sheet.
+///
+/// Lives next to the live chip so diagnostics are always one tap away without
+/// cluttering the board.
+class MapDiagnosticsButton extends StatelessWidget {
+  final FeedController feed;
+  const MapDiagnosticsButton({super.key, required this.feed});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return Tooltip(
+      message: 'Dijagnostika podataka',
+      child: Material(
+        color: colors.panel,
+        elevation: 2,
+        borderRadius: BorderRadius.circular(ZetRadius.chip),
+        shadowColor: Colors.black.withValues(alpha: 0.18),
+        child: InkWell(
+          onTap: () => showDiagnostics(context, feed),
+          borderRadius: BorderRadius.circular(ZetRadius.chip),
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: Icon(Icons.info_outline, size: 18, color: colors.textDim),
           ),
-          const SizedBox(width: 4),
-          Text(
-            'STAJALIŠTE',
-            style: TextStyle(
-              fontSize: 8,
-              color: colors.textDim,
-              letterSpacing: 0.8,
-              fontFamily: kMono,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: modeColor.withValues(alpha: 0.55),
-                width: 2.2,
-                strokeAlign: BorderSide.strokeAlignOutside,
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            'PROCJENA',
-            style: TextStyle(
-              fontSize: 8,
-              color: colors.textDim,
-              letterSpacing: 0.8,
-              fontFamily: kMono,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

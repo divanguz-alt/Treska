@@ -1,0 +1,7 @@
+# The `reality` tag marks tests that need ~19 MB of captured ZET fixtures
+# (static GTFS zip + a relay frame) under a fixed temp path. They check the
+# engine against real production data, so they stay out of the default run.
+#
+# Run them with:
+#   flutter test test/engine_reality_test.dart --tags reality
+exclude_tags: reality

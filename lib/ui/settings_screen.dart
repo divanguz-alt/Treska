@@ -1,24 +1,25 @@
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
+import '../core/tokens.dart';
 import '../data/feed_controller.dart';
 import '../data/update_service.dart';
+import '../settings_controller.dart';
 import '../theme_controller.dart';
 
-/// Full-screen settings: appearance, data controls and self-update.
-///
-/// Kept deliberately plain (one scroll, few switches) so it can grow without
-/// fighting the LED-board look of the map.
+/// Full-screen settings: appearance, map radius, data controls and self-update.
 Future<void> showSettings(
   BuildContext context, {
   required FeedController feed,
   required ThemeController themeController,
+  required SettingsController settings,
 }) {
   return Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => _SettingsScreen(
         feed: feed,
         themeController: themeController,
+        settings: settings,
       ),
     ),
   );
@@ -27,10 +28,12 @@ Future<void> showSettings(
 class _SettingsScreen extends StatefulWidget {
   final FeedController feed;
   final ThemeController themeController;
+  final SettingsController settings;
 
   const _SettingsScreen({
     required this.feed,
     required this.themeController,
+    required this.settings,
   });
 
   @override
@@ -39,7 +42,6 @@ class _SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<_SettingsScreen> {
   final UpdateService _updates = UpdateService();
-  final ScrollController _scroll = ScrollController();
 
   UpdateCheck? _check;
   bool _checking = false;
@@ -50,14 +52,12 @@ class _SettingsScreenState extends State<_SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    // Check once on open so the user does not have to tap first.
     WidgetsBinding.instance.addPostFrameCallback((_) => _runCheck());
   }
 
   @override
   void dispose() {
     _updates.dispose();
-    _scroll.dispose();
     super.dispose();
   }
 
@@ -97,8 +97,8 @@ class _SettingsScreenState extends State<_SettingsScreen> {
       if (!started) {
         setState(() {
           _status =
-              'Android je blokirao instalaciju. Dopusti Treski "instalaciju '
-              'nepoznatih aplikacija" pa pokušaj ponovno.';
+              'Android je blokirao instalaciju. Dopusti Treski „instalaciju '
+              'nepoznatih aplikacija“ pa pokušaj ponovno.';
         });
         await _offerUnknownSources();
       } else {
@@ -118,7 +118,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
         title: const Text('Dopusti instalaciju'),
         content: const Text(
           'Za ažuriranje Treska mora smjeti instalirati aplikacije. Otvoriti '
-          'postavku "Instaliraj nepoznate aplikacije"?',
+          'postavku „Instaliraj nepoznate aplikacije“?',
         ),
         actions: [
           TextButton(
@@ -140,88 +140,118 @@ class _SettingsScreenState extends State<_SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    final stats = widget.feed.snapshot.value?.stats;
     final status = widget.feed.status.value;
+    final stats = widget.feed.snapshot.value?.stats;
 
     return Scaffold(
       backgroundColor: colors.bg,
       appBar: AppBar(
-        backgroundColor: colors.panel,
-        foregroundColor: colors.textHi,
-        elevation: 0,
         title: Text(
-          'POSTAVKE',
+          'Postavke',
           style: TextStyle(
-            fontSize: 13,
-            letterSpacing: 2,
-            fontWeight: FontWeight.w700,
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: colors.text,
             fontFamily: kMono,
-            color: colors.accent,
           ),
         ),
       ),
       body: ListView(
-        controller: _scroll,
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
+        padding: const EdgeInsets.only(bottom: ZetSpace.xl),
         children: [
           _SectionLabel('IZGLED', colors: colors),
-          _ThemeRow(controller: widget.themeController),
-          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: ZetSpace.lg),
+            child: _ThemeRow(controller: widget.themeController),
+          ),
+          const SizedBox(height: ZetSpace.xl),
+
+          _SectionLabel('KARTA', colors: colors),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: ZetSpace.lg),
+            child: _RadiusRow(controller: widget.settings),
+          ),
+          const SizedBox(height: ZetSpace.xl),
 
           _SectionLabel('PODACI', colors: colors),
-          _InfoRow(
-            'Raspored',
-            status.staticReady ? 'učitan' : 'nije učitan',
-            colors: colors,
-          ),
-          _InfoRow('Stajališta', '${status.stopCount}', colors: colors),
-          _InfoRow('Aktivni polasci', '${status.tripCount}', colors: colors),
-          _InfoRow(
-            'Osvježavanje',
-            '${stats?.refreshMs ?? 0} ms · '
-                '${FeedController.pollInterval.inSeconds} s interval',
-            colors: colors,
-          ),
-          const SizedBox(height: 8),
-          _ActionButton(
-            label: 'OSVJEŽI RASPORED',
-            icon: Icons.download,
-            colors: colors,
-            onTap: () {
-              widget.feed.retryStatic();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Ponovno preuzimam vozni red…'),
-                  duration: Duration(seconds: 2),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: ZetSpace.lg),
+            child: Column(
+              children: [
+                _InfoRow(
+                  'Raspored',
+                  status.staticReady ? 'učitan' : 'nije učitan',
+                  colors: colors,
                 ),
-              );
-            },
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Ponovno preuzima vozni red s ZET-a (~19 MB). Inače se raspored '
-            'kešira 12 h i sam osvježava svakih 4 h.',
-            style: TextStyle(
-              fontSize: 10,
-              height: 1.4,
-              color: colors.textDim,
-              fontFamily: kMono,
+                _InfoRow('Stajališta', '${status.stopCount}', colors: colors),
+                _InfoRow(
+                    'Aktivni polasci', '${status.tripCount}', colors: colors),
+                _InfoRow(
+                  'Osvježavanje',
+                  '${stats?.refreshMs ?? 0} ms · '
+                      '${FeedController.pollInterval.inSeconds} s interval',
+                  colors: colors,
+                ),
+                const SizedBox(height: ZetSpace.md),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      widget.feed.retryStatic();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Ponovno preuzimam vozni red…'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.download, size: 18),
+                    label: const Text('Osvježi raspored'),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Ponovno preuzima vozni red s ZET-a (~19 MB). Inače se '
+                  'raspored kešira 12 h i sam osvježava svakih 4 h.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: colors.textDim,
+                    fontFamily: kMono,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: ZetSpace.xl),
 
           _SectionLabel('AŽURIRANJE', colors: colors),
-          _VersionRow(colors: colors),
-          const SizedBox(height: 10),
-          _UpdateBody(
-            colors: colors,
-            check: _check,
-            checking: _checking,
-            downloading: _downloading,
-            progress: _progress,
-            status: _status,
-            onCheck: _runCheck,
-            onInstall: _downloadAndInstall,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: ZetSpace.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _InfoRow(
+                  'Instalirano',
+                  AppVersion.versionName.isEmpty
+                      ? '—'
+                      : '${AppVersion.versionName} '
+                          '(${AppVersion.versionCode})',
+                  colors: colors,
+                ),
+                const SizedBox(height: ZetSpace.md),
+                _UpdateBody(
+                  colors: colors,
+                  check: _check,
+                  checking: _checking,
+                  downloading: _downloading,
+                  progress: _progress,
+                  status: _status,
+                  onCheck: _runCheck,
+                  onInstall: _downloadAndInstall,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -239,14 +269,14 @@ class _SectionLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(
+          ZetSpace.sheet, ZetSpace.sm, ZetSpace.sheet, ZetSpace.sm),
       child: Text(
         text,
         style: TextStyle(
-          fontSize: 10,
-          letterSpacing: 1.6,
-          color: colors.accent,
-          fontWeight: FontWeight.w700,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: colors.primary,
           fontFamily: kMono,
         ),
       ),
@@ -264,57 +294,97 @@ class _ThemeRow extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          decoration: BoxDecoration(
-            color: colors.panel,
-            border: Border.all(color: colors.border),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.brightness_6, size: 18, color: colors.textDim),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Tema',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colors.textHi,
-                    fontFamily: kMono,
-                  ),
-                ),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Tema',
+              style: TextStyle(
+                fontSize: 16,
+                color: colors.text,
+                fontFamily: kMono,
               ),
-              SegmentedButton<ThemeMode>(
-                showSelectedIcon: false,
-                style: ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  textStyle: WidgetStatePropertyAll(
-                    TextStyle(fontSize: 10, fontFamily: kMono),
-                  ),
-                ),
-                segments: const [
-                  ButtonSegment(
-                    value: ThemeMode.system,
-                    label: Text('Auto'),
-                    icon: Icon(Icons.brightness_auto, size: 15),
-                  ),
-                  ButtonSegment(
-                    value: ThemeMode.light,
-                    label: Text('Dan'),
-                    icon: Icon(Icons.light_mode, size: 15),
-                  ),
-                  ButtonSegment(
-                    value: ThemeMode.dark,
-                    label: Text('Noć'),
-                    icon: Icon(Icons.dark_mode, size: 15),
-                  ),
-                ],
-                selected: {controller.mode},
-                onSelectionChanged: (set) => controller.setMode(set.first),
+            ),
+            const SizedBox(height: ZetSpace.md),
+            SegmentedButton<ThemeMode>(
+              showSelectedIcon: false,
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
               ),
-            ],
-          ),
+              segments: const [
+                ButtonSegment(
+                  value: ThemeMode.system,
+                  label: Text('Sustav'),
+                  icon: Icon(Icons.brightness_auto, size: 18),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.light,
+                  label: Text('Svijetla'),
+                  icon: Icon(Icons.light_mode, size: 18),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.dark,
+                  label: Text('Tamna'),
+                  icon: Icon(Icons.dark_mode, size: 18),
+                ),
+              ],
+              selected: {controller.mode},
+              onSelectionChanged: (set) => controller.setMode(set.first),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RadiusRow extends StatelessWidget {
+  final SettingsController controller;
+  const _RadiusRow({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Radijus obližnjih stanica',
+              style: TextStyle(
+                fontSize: 16,
+                color: colors.text,
+                fontFamily: kMono,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Stanice unutar ovog radijusa prikazuju se u kartici.',
+              style: TextStyle(
+                fontSize: 13,
+                color: colors.textDim,
+                fontFamily: kMono,
+              ),
+            ),
+            const SizedBox(height: ZetSpace.md),
+            SegmentedButton<double>(
+              showSelectedIcon: false,
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
+              ),
+              segments: [
+                for (final r in SettingsController.radiusChoices)
+                  ButtonSegment(
+                    value: r,
+                    label: Text('${r.round()} m'),
+                  ),
+              ],
+              selected: {controller.radiusM},
+              onSelectionChanged: (set) => controller.setRadius(set.first),
+            ),
+          ],
         );
       },
     );
@@ -339,7 +409,7 @@ class _InfoRow extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 14,
                 color: colors.textDim,
                 fontFamily: kMono,
               ),
@@ -349,62 +419,14 @@ class _InfoRow extends StatelessWidget {
             child: Text(
               value,
               style: TextStyle(
-                fontSize: 11,
-                color: colors.textHi,
+                fontSize: 14,
+                color: colors.text,
                 fontFamily: kMono,
+                fontFeatures: kTabular,
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _VersionRow extends StatelessWidget {
-  final ZetColors colors;
-  const _VersionRow({required this.colors});
-
-  @override
-  Widget build(BuildContext context) {
-    final installed = AppVersion.versionName.isEmpty
-        ? '—'
-        : '${AppVersion.versionName} (${AppVersion.versionCode})';
-    return _InfoRow('Instalirano', installed, colors: colors);
-  }
-}
-
-class _ActionButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final ZetColors colors;
-  final VoidCallback onTap;
-  const _ActionButton({
-    required this.label,
-    required this.icon,
-    required this.colors,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      onPressed: onTap,
-      icon: Icon(icon, size: 16),
-      label: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          letterSpacing: 1,
-          fontFamily: kMono,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: colors.accent,
-        side: BorderSide(color: colors.accent.withValues(alpha: 0.6)),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
       ),
     );
   }
@@ -443,11 +465,10 @@ class _UpdateBody extends StatelessWidget {
     final available = check?.updateAvailable ?? false;
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(ZetSpace.md),
       decoration: BoxDecoration(
         color: colors.panel,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(ZetRadius.card),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -456,10 +477,10 @@ class _UpdateBody extends StatelessWidget {
             children: [
               Icon(
                 available ? Icons.new_releases : Icons.verified_outlined,
-                size: 16,
-                color: available ? colors.accent : colors.textDim,
+                size: 18,
+                color: available ? colors.primary : colors.textDim,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: ZetSpace.sm),
               Expanded(
                 child: Text(
                   checking
@@ -470,9 +491,9 @@ class _UpdateBody extends StatelessWidget {
                               ? 'Provjera nije uspjela'
                               : 'Treska je ažurna',
                   style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: available ? colors.accent : colors.textHi,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: available ? colors.primary : colors.text,
                     fontFamily: kMono,
                   ),
                 ),
@@ -481,7 +502,7 @@ class _UpdateBody extends StatelessWidget {
                 Text(
                   _sizeLabel(release.apkSize),
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 13,
                     color: colors.textDim,
                     fontFamily: kMono,
                   ),
@@ -493,7 +514,7 @@ class _UpdateBody extends StatelessWidget {
             Text(
               check!.error!,
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 13,
                 height: 1.35,
                 color: colors.danger,
                 fontFamily: kMono,
@@ -502,14 +523,14 @@ class _UpdateBody extends StatelessWidget {
           ],
           if (available && release != null) ...[
             if (release.body.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: ZetSpace.sm),
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 130),
+                constraints: const BoxConstraints(maxHeight: 140),
                 child: SingleChildScrollView(
                   child: Text(
                     release.body,
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 13,
                       height: 1.4,
                       color: colors.text,
                       fontFamily: kMono,
@@ -518,13 +539,13 @@ class _UpdateBody extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 10),
+            const SizedBox(height: ZetSpace.md),
             if (downloading) ...[
               LinearProgressIndicator(
                 value: progress >= 0 ? progress : null,
                 minHeight: 4,
                 backgroundColor: colors.panelAlt,
-                color: colors.accent,
+                color: colors.primary,
               ),
               const SizedBox(height: 6),
               Text(
@@ -532,7 +553,7 @@ class _UpdateBody extends StatelessWidget {
                     ? '${(progress * 100).clamp(0, 100).toStringAsFixed(0)} %'
                     : 'Preuzimam…',
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 13,
                   color: colors.textDim,
                   fontFamily: kMono,
                 ),
@@ -543,65 +564,36 @@ class _UpdateBody extends StatelessWidget {
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: () => onInstall(release),
-                      icon: const Icon(Icons.system_update_alt, size: 16),
-                      label: Text(
-                        'PREUZMI I INSTALIRAJ',
-                        style: TextStyle(
-                          fontSize: 11,
-                          letterSpacing: 1,
-                          fontFamily: kMono,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: colors.accent,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
+                      icon: const Icon(Icons.system_update_alt, size: 18),
+                      label: const Text('Preuzmi i instaliraj'),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: ZetSpace.sm),
                   IconButton(
                     tooltip: 'Otvori na GitHubu',
-                    onPressed: () => _openOnGithub(release.htmlUrl),
-                    icon: Icon(Icons.open_in_new, size: 18,
-                        color: colors.textDim),
+                    onPressed: () => UpdateService.openUrl(release.htmlUrl),
+                    icon: Icon(Icons.open_in_new,
+                        size: 20, color: colors.textDim),
                   ),
                 ],
               ),
           ] else ...[
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: checking ? null : onCheck,
-              icon: const Icon(Icons.refresh, size: 16),
-              label: Text(
-                'PROVJERI AŽURIRANJA',
-                style: TextStyle(
-                  fontSize: 11,
-                  letterSpacing: 1,
-                  fontFamily: kMono,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: colors.textHi,
-                side: BorderSide(color: colors.borderStrong),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(4),
-                ),
+            const SizedBox(height: ZetSpace.md),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: checking ? null : onCheck,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Provjeri ažuriranja'),
               ),
             ),
           ],
           if (status != null) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: ZetSpace.sm),
             Text(
               status!,
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 13,
                 height: 1.35,
                 color: colors.textDim,
                 fontFamily: kMono,
@@ -611,10 +603,9 @@ class _UpdateBody extends StatelessWidget {
           if (release != null) ...[
             const SizedBox(height: 6),
             Text(
-              'Izvor: github.com/${UpdateService.owner}/'
-              '${UpdateService.repo}',
+              'Izvor: github.com/${UpdateService.owner}/${UpdateService.repo}',
               style: TextStyle(
-                fontSize: 9,
+                fontSize: 12,
                 color: colors.textDim,
                 fontFamily: kMono,
               ),
@@ -623,10 +614,5 @@ class _UpdateBody extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  Future<void> _openOnGithub(String url) async {
-    if (url.isEmpty) return;
-    await UpdateService.openUrl(url);
   }
 }
