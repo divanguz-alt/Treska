@@ -47,7 +47,6 @@ class _HomeScreenState extends State<HomeScreen>
   /// Current sheet size as a fraction of the screen height, animated between
   /// the snap points.
   late final DraggableScrollableController _sheet;
-  bool _sheetCollapsed = false;
 
   @override
   void initState() {
@@ -103,7 +102,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _expandSheet() {
     if (!_sheet.isAttached) return;
-    _sheetCollapsed = false;
     setState(() {});
     final screen = MediaQuery.of(context).size.height;
     final fractions = _fractions(screen);
@@ -118,11 +116,10 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _collapseSheet() {
     if (!_sheet.isAttached) return;
-    _sheetCollapsed = true;
     setState(() {});
     try {
       _sheet.animateTo(
-        0.002,
+        0,
         duration: ZetMotion.sheet,
         curve: ZetMotion.emphasized,
       );
@@ -145,10 +142,9 @@ class _HomeScreenState extends State<HomeScreen>
           animation: _sheet,
           builder: (context, _) {
             // Keep the FAB and zoom controls just above the sheet's top edge.
-            final sheetPx = _sheet.isAttached
-                ? _sheet.size * screen
-                : fractions.half * screen;
-            final hidden = _sheet.isAttached && _sheet.size < 0.008 || _sheetCollapsed;
+            final sheetSize = _sheet.isAttached ? _sheet.size : fractions.half;
+            final sheetPx = sheetSize * screen;
+            final hidden = sheetSize < 0.01;
 
             return Stack(
               children: [
@@ -197,7 +193,6 @@ class _HomeScreenState extends State<HomeScreen>
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: () {
-                        _sheetCollapsed = false;
                         setState(() {});
                         final screen = MediaQuery.of(context).size.height;
                         final fractions = _fractions(screen);
@@ -215,7 +210,7 @@ class _HomeScreenState extends State<HomeScreen>
 
                 _BottomSheetHost(
                   controller: _sheet,
-                  minChild: 0.001,
+                  minChild: 0,
                   initialChild: fractions.half,
                   maxChild: fractions.full,
                   peek: fractions.peek,
@@ -242,6 +237,32 @@ class _HomeScreenState extends State<HomeScreen>
                   Positioned(
                     left: 0,
                     right: 0,
+                    bottom: 0,
+                    top: 0,
+                    child: IgnorePointer(
+                      ignoring: true,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: () {
+                          setState(() {});
+                          if (_sheet.isAttached) {
+                            try {
+                              _sheet.animateTo(
+                                fractions.half,
+                                duration: ZetMotion.sheet,
+                                curve: ZetMotion.emphasized,
+                              );
+                            } catch (_) {}
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+
+                if (hidden)
+                  Positioned(
+                    left: 0,
+                    right: 0,
                     bottom: math.max(
                           media.padding.bottom,
                           media.viewPadding.bottom,
@@ -250,24 +271,18 @@ class _HomeScreenState extends State<HomeScreen>
                     child: SafeArea(
                       top: false,
                       child: Center(
-                        child: IgnorePointer(
-                          ignoring: false,
-                          child: _ShowBoardPill(onTap: () {
-                            _sheetCollapsed = false;
-                            setState(() {});
-                            final screen = MediaQuery.of(context).size.height;
-                            final fractions = _fractions(screen);
-                            if (_sheet.isAttached) {
-                              try {
-                                _sheet.animateTo(
-                                  fractions.half,
-                                  duration: ZetMotion.sheet,
-                                  curve: ZetMotion.emphasized,
-                                );
-                              } catch (_) {}
-                            }
-                          }),
-                        ),
+                        child: _ShowBoardPill(onTap: () {
+                          setState(() {});
+                          if (_sheet.isAttached) {
+                            try {
+                              _sheet.animateTo(
+                                fractions.half,
+                                duration: ZetMotion.sheet,
+                                curve: ZetMotion.emphasized,
+                              );
+                            } catch (_) {}
+                          }
+                        }),
                       ),
                     ),
                   ),
