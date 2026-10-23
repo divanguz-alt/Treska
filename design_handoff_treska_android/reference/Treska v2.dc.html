@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,600;8..144,700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..600,0..1,0&amp;display=block" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+body{margin:0;background:#e6e8ec;font-family:'Roboto Flex',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#1f4fa8}a:hover{color:#163a7d}
+@keyframes tpulse{0%{transform:scale(1);opacity:.85}70%{transform:scale(2.6);opacity:0}100%{opacity:0}}
+@keyframes tin{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+.leaflet-container{font-family:'Roboto Flex',sans-serif;background:transparent}
+.leaflet-control-attribution{font-size:9px!important;background:rgba(255,255,255,.6)!important;border-radius:6px 0 0 0}
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;flex-wrap:wrap;gap:56px;justify-content:center;align-items:flex-start;padding:56px 40px;box-sizing:border-box">
+  <div style="max-width:340px;display:flex;flex-direction:column;gap:22px;color:#1b1d22;padding-top:12px">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="font:500 12px/1 'Roboto Flex',sans-serif;color:#5b606b">Android · v2</div>
+      <h1 style="margin:0;font:650 34px/1.1 'Roboto Flex',sans-serif;letter-spacing:-.02em">Treska</h1>
+      <p style="margin:0;font:400 15px/1.5 'Roboto Flex',sans-serif;color:#454a54;text-wrap:pretty">Dizajn za Android po Material 3 obrascima. Podaci u prototipu su simulirani. Pravi feed tramvaja i autobusa spaja se na backend.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="font:600 13px/1.2 'Roboto Flex',sans-serif">Promjene u odnosu na v1</div>
+      <ol style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:9px;font:400 14px/1.45 'Roboto Flex',sans-serif;color:#353a43">
+        <li>OpenStreetMap podloga. Početni zoom je dalji, pa se vidi cijeli radijus od 800 m.</li>
+        <li>Dolasci su grupirani po liniji i smjeru: jedan red pokazuje sljedeći dolazak i dva iza njega.</li>
+        <li>Material 3 elementi: search bar, filter chipovi, tonalni FAB, bottom sheet, Material Symbols ikone.</li>
+        <li>Tramvaj i autobus imaju različit oblik oznake (pilula i kvadrat), ne samo boju.</li>
+        <li>Statusna traka i gesture traka Androida uračunate su u raspored.</li>
+      </ol>
+    </div>
+    <div style="font:400 13px/1.45 'Roboto Flex',sans-serif;color:#5b606b">Tema: gumb u search baru ili Tweaks. Povuci ručku kartice za promjenu visine.</div>
+  </div>
+
+  <div style="width:412px;height:915px;border-radius:36px;overflow:hidden;position:relative;flex:none;box-shadow:0 0 0 9px #141518,0 30px 60px -20px rgba(0,0,0,.45);background:{{ t.surface }};font-family:'Roboto Flex',sans-serif;color:{{ t.ink }}">
+    <div ref="{{ mapRef }}" style="position:absolute;inset:0;z-index:0;isolation:isolate;background:{{ t.surfC }}"></div>
+
+    <div style="position:absolute;top:0;left:0;right:0;height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 22px 0 26px;z-index:5;pointer-events:none;background:linear-gradient({{ t.scrim }},transparent)">
+      <span style="font:500 14px/1 'Roboto Flex',sans-serif;color:{{ t.ink }}">{{ clockShort }}</span>
+      <span style="display:flex;gap:4px;align-items:center;color:{{ t.ink }};font-family:'Material Symbols Rounded';font-size:17px;font-variation-settings:'FILL' 1">
+        <span>signal_cellular_alt</span><span>wifi</span><span>battery_full</span>
+      </span>
+    </div>
+
+    <div style="position:absolute;top:44px;left:16px;right:16px;display:flex;flex-direction:column;gap:10px;z-index:6">
+      <div style="height:56px;border-radius:28px;background:{{ t.surfCH }};display:flex;align-items:center;padding:0 6px 0 4px;box-shadow:0 1px 3px rgba(0,0,0,.18),0 4px 12px rgba(0,0,0,.08)">
+        <button onClick="{{ openSearch }}" style="flex:1;height:48px;border:none;background:transparent;display:flex;align-items:center;gap:12px;padding:0 12px;color:{{ t.ink2 }};font:400 16px/1 'Roboto Flex',sans-serif;cursor:pointer;text-align:left">
+          <span style="font-family:'Material Symbols Rounded';font-size:24px;color:{{ t.ink }}">search</span>
+          <span>Traži stanicu ili liniju</span>
+        </button>
+        <button onClick="{{ toggleTheme }}" title="Promijeni temu" style="width:48px;height:48px;border-radius:24px;border:none;background:transparent;color:{{ t.ink2 }};cursor:pointer;font-family:'Material Symbols Rounded';font-size:24px" style-hover="background:rgba(127,127,127,.12)">{{ themeIcon }}</button>
+        <button onClick="{{ openSettings }}" title="Postavke" style="width:48px;height:48px;border-radius:24px;border:none;background:transparent;color:{{ t.ink2 }};cursor:pointer;font-family:'Material Symbols Rounded';font-size:24px" style-hover="background:rgba(127,127,127,.12)">settings</button>
+      </div>
+      <div style="display:flex">
+        <div style="display:flex;align-items:center;gap:8px;height:32px;padding:0 14px 0 12px;border-radius:8px;background:{{ t.surfCH }};box-shadow:0 1px 3px rgba(0,0,0,.15);font:500 13px/1 'Roboto Flex',sans-serif;color:{{ t.ink2 }};font-variant-numeric:tabular-nums">
+          <span style="position:relative;width:8px;height:8px"><span style="position:absolute;inset:0;border-radius:50%;background:{{ t.ok }}"></span><span style="position:absolute;inset:0;border-radius:50%;background:{{ t.ok }};animation:tpulse 2s ease-out infinite"></span></span>
+          <span style="color:{{ t.ink }}">Uživo</span><span>{{ tramCount }} tramvaja · {{ busCount }} autobusa</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="position:absolute;right:20px;bottom:{{ zoomBottom }}px;z-index:6;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;background:{{ t.surfCH }};box-shadow:0 1px 3px rgba(0,0,0,.2),0 4px 10px rgba(0,0,0,.08);transition:bottom .3s cubic-bezier(.2,.8,.2,1)">
+      <button onClick="{{ zoomIn }}" title="Približi" style="width:48px;height:44px;border:none;background:transparent;color:{{ t.ink }};cursor:pointer;font-family:'Material Symbols Rounded';font-size:22px" style-hover="background:rgba(127,127,127,.12)">add</button>
+      <span style="height:1px;margin:0 10px;background:{{ t.outlineV }}"></span>
+      <button onClick="{{ zoomOut }}" title="Udalji" style="width:48px;height:44px;border:none;background:transparent;color:{{ t.ink }};cursor:pointer;font-family:'Material Symbols Rounded';font-size:22px" style-hover="background:rgba(127,127,127,.12)">remove</button>
+    </div>
+
+    <button onClick="{{ locate }}" title="Moja lokacija" style="position:absolute;right:16px;bottom:{{ fabBottom }}px;width:56px;height:56px;border-radius:16px;border:none;background:{{ t.primaryC }};color:{{ t.onPrimaryC }};box-shadow:0 2px 6px rgba(0,0,0,.2),0 6px 16px rgba(0,0,0,.1);cursor:pointer;z-index:6;transition:bottom .3s cubic-bezier(.2,.8,.2,1);font-family:'Material Symbols Rounded';font-size:24px">my_location</button>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:{{ sheetH }}px;background:{{ t.surface }};border-radius:28px 28px 0 0;box-shadow:0 -2px 16px rgba(0,0,0,.14);display:flex;flex-direction:column;z-index:7;transition:{{ sheetTransition }};overflow:hidden">
+      <div onPointerDown="{{ onDragStart }}" onClick="{{ cycleSnap }}" style="flex:none;height:28px;display:flex;align-items:center;justify-content:center;cursor:grab;touch-action:none">
+        <span style="width:32px;height:4px;border-radius:2px;background:{{ t.outline }}"></span>
+      </div>
+
+      <sc-if value="{{ showList }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+          <div style="flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 10px 24px">
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+              <div style="font:600 22px/1.2 'Roboto Flex',sans-serif;letter-spacing:-.01em;overflow-wrap:anywhere">{{ stop.name }}</div>
+              <div style="display:flex;align-items:center;gap:4px;font:400 14px/1.2 'Roboto Flex',sans-serif;color:{{ t.ink2 }}">
+                <span style="font-family:'Material Symbols Rounded';font-size:18px">directions_walk</span>{{ stop.distLabel }}
+              </div>
+            </div>
+            <button onClick="{{ toggleFav }}" title="Spremi stanicu" style="width:48px;height:48px;border-radius:24px;border:none;background:{{ favBg }};color:{{ favFg }};cursor:pointer;font-family:'Material Symbols Rounded';font-size:24px;font-variation-settings:'FILL' {{ favFill }}">star</button>
+          </div>
+
+          <div style="flex:none;display:flex;gap:8px;overflow-x:auto;padding:0 24px 12px;scrollbar-width:none">
+            <sc-for list="{{ filters }}" as="f" hint-placeholder-count="2">
+              <button onClick="{{ f.onClick }}" style="flex:none;height:32px;padding:0 14px 0 8px;border-radius:8px;border:1px solid {{ f.border }};background:{{ f.bg }};color:{{ f.fg }};font:500 14px/1 'Roboto Flex',sans-serif;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">
+                <span style="font-family:'Material Symbols Rounded';font-size:18px">{{ f.icon }}</span><span>{{ f.label }}</span><span style="opacity:.7;font-variant-numeric:tabular-nums">{{ f.count }}</span>
+              </button>
+            </sc-for>
+            <span style="flex:none;width:1px;margin:4px 2px;background:{{ t.outline }}"></span>
+            <sc-for list="{{ chips }}" as="c" hint-placeholder-count="4">
+              <button onClick="{{ c.onClick }}" style="flex:none;height:32px;padding:0 14px;border-radius:8px;border:1px solid {{ c.border }};background:{{ c.bg }};color:{{ c.fg }};font:500 14px/1 'Roboto Flex',sans-serif;display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">
+                <span>{{ c.name }}</span><span style="font-weight:400;opacity:.7;font-variant-numeric:tabular-nums">{{ c.dist }}</span>
+              </button>
+            </sc-for>
+          </div>
+
+          <div style="flex:1;min-height:0;overflow-y:auto;padding:0 12px 8px">
+            <sc-for list="{{ groups }}" as="g" hint-placeholder-count="6">
+              <button onClick="{{ g.onClick }}" style="width:100%;display:grid;grid-template-columns:52px minmax(0,1fr) auto;align-items:center;gap:14px;padding:12px;border:none;border-radius:16px;background:transparent;color:{{ t.ink }};text-align:left;cursor:pointer;font-family:'Roboto Flex',sans-serif" style-hover="background:{{ t.surfC }}">
+                <span style="height:40px;border-radius:{{ g.radius }};background:{{ g.bg }};color:{{ g.fg }};display:flex;align-items:center;justify-content:center;font:650 18px/1 'Roboto Flex',sans-serif;font-variant-numeric:tabular-nums">{{ g.line }}</span>
+                <span style="display:flex;flex-direction:column;gap:4px;min-width:0">
+                  <span style="font:500 16px/1.25 'Roboto Flex',sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ g.dest }}</span>
+                  <span style="display:flex;align-items:center;gap:6px;font:400 13px/1.2 'Roboto Flex',sans-serif;color:{{ t.ink2 }};white-space:nowrap;overflow:hidden">
+                    <span style="width:7px;height:7px;border-radius:50%;background:{{ g.dot }};border:1.5px solid {{ g.dotRing }};box-sizing:border-box;flex:none"></span>
+                    <span>{{ g.mode }}</span>
+                    <sc-if value="{{ g.hasDelay }}" hint-placeholder-val="{{ false }}"><span style="color:{{ g.delayColor }};font-weight:500">{{ g.delay }}</span></sc-if>
+                  </span>
+                </span>
+                <span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:72px">
+                  <sc-if value="{{ g.arriving }}" hint-placeholder-val="{{ false }}">
+                    <span style="display:flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:16px;background:{{ t.liveC }};color:{{ t.onLiveC }};font:600 15px/1 'Roboto Flex',sans-serif">
+                      <span style="position:relative;width:7px;height:7px"><span style="position:absolute;inset:0;border-radius:50%;background:{{ t.live }}"></span><span style="position:absolute;inset:0;border-radius:50%;background:{{ t.live }};animation:tpulse 1.4s ease-out infinite"></span></span>Stiže
+                    </span>
+                  </sc-if>
+                  <sc-if value="{{ g.notArriving }}" hint-placeholder-val="{{ true }}">
+                    <span style="display:flex;align-items:baseline;gap:3px;font-variant-numeric:tabular-nums">
+                      <span style="font:600 24px/1 'Roboto Flex',sans-serif;letter-spacing:-.02em;color:{{ g.primaryColor }}">{{ g.primary }}</span>
+                      <span style="font:500 13px/1 'Roboto Flex',sans-serif;color:{{ t.ink2 }}">{{ g.unit }}</span>
+                    </span>
+                  </sc-if>
+                  <span style="font:400 12px/1 'Roboto Flex',sans-serif;color:{{ t.ink2 }};font-variant-numeric:tabular-nums;white-space:nowrap">{{ g.next }}</span>
+                </span>
+              </button>
+            </sc-for>
+            <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:32px 12px;text-align:center;font:400 14px/1.4 'Roboto Flex',sans-serif;color:{{ t.ink2 }}">Nema dolazaka za odabrani filtar.</div>
+            </sc-if>
+          </div>
+
+          <div style="flex:none;display:flex;align-items:center;gap:16px;padding:10px 24px 30px;border-top:1px solid {{ t.outlineV }};font:400 12px/1 'Roboto Flex',sans-serif;color:{{ t.ink2 }}">
+            <span style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:{{ t.ok }}"></span>Uživo (GPS)</span>
+            <span style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;border:1.5px solid {{ t.ink2 }};box-sizing:border-box"></span>Procjena</span>
+            <span style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:{{ t.outline }}"></span>Raspored</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showDetail }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;animation:tin .22s cubic-bezier(.2,.8,.2,1)">
+          <div style="flex:none;display:flex;align-items:center;gap:12px;padding:0 16px 14px 8px">
+            <button onClick="{{ closeDetail }}" title="Natrag" style="width:48px;height:48px;border-radius:24px;border:none;background:transparent;color:{{ t.ink }};cursor:pointer;font-family:'Material Symbols Rounded';font-size:24px" style-hover="background:{{ t.surfC }}">arrow_back</button>
+            <span style="flex:none;width:56px;height:44px;border-radius:{{ d.radius }};background:{{ d.bg }};color:{{ d.fg }};display:flex;align-items:center;justify-content:center;font:650 20px/1 'Roboto Flex',sans-serif">{{ d.line }}</span>
+            <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+              <div style="font:600 20px/1.2 'Roboto Flex',sans-serif;overflow-wrap:anywhere">{{ d.dest }}</div>
+              <div style="font:400 13px/1.2 'Roboto Flex',sans-serif;color:{{ t.ink2 }}">{{ d.meta }}</div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:0 16px 12px;padding:16px 16px 16px 20px;border-radius:20px;background:{{ t.surfC }};display:flex;align-items:center;gap:12px">
+            <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+              <div style="font:400 13px/1.2 'Roboto Flex',sans-serif;color:{{ t.ink2 }}">Do stanice {{ stop.name }}</div>
+              <div style="display:flex;align-items:baseline;gap:4px;font-variant-numeric:tabular-nums">
+                <span style="font:650 36px/1 'Roboto Flex',sans-serif;letter-spacing:-.03em;color:{{ d.primaryColor }}">{{ d.primary }}</span>
+                <span style="font:500 15px/1 'Roboto Flex',sans-serif;color:{{ t.ink2 }}">{{ d.unit }}</span>
+              </div>
+              <div style="font:500 13px/1.2 'Roboto Flex',sans-serif;color:{{ d.statusColor }}">{{ d.status }}</div>
+            </div>
+            <button onClick="{{ toggleNotify }}" style="flex:none;height:40px;padding:0 16px 0 12px;border-radius:20px;border:1px solid {{ d.notifyBorder }};background:{{ d.notifyBg }};color:{{ d.notifyFg }};font:500 14px/1 'Roboto Flex',sans-serif;display:flex;align-items:center;gap:8px;cursor:pointer">
+              <span style="font-family:'Material Symbols Rounded';font-size:18px">{{ d.notifyIcon }}</span>{{ d.notifyLabel }}
+            </button>
+          </div>
+
+          <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 24px 32px">
+            <sc-for list="{{ d.timeline }}" as="s" hint-placeholder-count="6">
+              <div style="display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:14px;align-items:stretch">
+                <div style="position:relative;display:flex;justify-content:center">
+                  <span style="position:absolute;top:{{ s.railTop }};bottom:{{ s.railBottom }};width:4px;border-radius:2px;background:{{ s.rail }};opacity:{{ s.railOpacity }}"></span>
+                  <span style="position:relative;margin-top:14px;width:{{ s.dotSize }}px;height:{{ s.dotSize }}px;border-radius:50%;background:{{ s.dotFill }};border:3px solid {{ s.rail }};box-sizing:border-box"></span>
+                </div>
+                <div style="padding:12px 0;display:flex;flex-direction:column;gap:8px;min-width:0">
+                  <span style="font:{{ s.weight }} 15px/1.3 'Roboto Flex',sans-serif;color:{{ s.color }}">{{ s.name }}</span>
+                  <sc-if value="{{ s.vehicleHere }}" hint-placeholder-val="{{ false }}">
+                    <span style="align-self:flex-start;display:flex;align-items:center;gap:6px;height:28px;padding:0 12px 0 8px;border-radius:14px;background:{{ d.bg }};color:{{ d.fg }};font:500 12px/1 'Roboto Flex',sans-serif">
+                      <span style="font-family:'Material Symbols Rounded';font-size:16px">{{ d.icon }}</span>Vozilo {{ d.vehicle }} je ovdje
+                    </span>
+                  </sc-if>
+                </div>
+                <span style="padding-top:13px;font:500 14px/1 'Roboto Flex',sans-serif;color:{{ s.color }};font-variant-numeric:tabular-nums">{{ s.time }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;z-index:20;background:{{ t.surface }};display:flex;flex-direction:column;padding-top:40px;animation:tin .18s ease-out">
+        <div style="margin:4px 16px 8px;height:56px;border-radius:28px;background:{{ t.surfCH }};display:flex;align-items:center;gap:4px;padding:0 8px 0 4px">
+          <button onClick="{{ closeSearch }}" title="Zatvori" style="width:48px;height:48px;border-radius:24px;border:none;background:transparent;color:{{ t.ink }};cursor:pointer;font-family:'Material Symbols Rounded';font-size:24px">arrow_back</button>
+          <input autoFocus value="{{ query }}" onChange="{{ onQuery }}" placeholder="Traži stanicu ili liniju" style="flex:1;height:48px;border:none;background:transparent;color:{{ t.ink }};font:400 16px/1 'Roboto Flex',sans-serif;outline:none">
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:0 8px 24px">
+          <div style="padding:14px 16px 8px;font:500 14px/1 'Roboto Flex',sans-serif;color:{{ t.primary }}">{{ searchHeading }}</div>
+          <sc-for list="{{ results }}" as="r" hint-placeholder-count="5">
+            <button onClick="{{ r.onClick }}" style="width:100%;display:flex;align-items:center;gap:16px;padding:12px 16px;border:none;border-radius:16px;background:transparent;color:{{ t.ink }};text-align:left;cursor:pointer" style-hover="background:{{ t.surfC }}">
+              <span style="width:40px;height:40px;border-radius:20px;background:{{ t.surfCH }};color:{{ t.ink2 }};display:flex;align-items:center;justify-content:center;font-family:'Material Symbols Rounded';font-size:22px;font-variation-settings:'FILL' {{ r.fill }}">{{ r.icon }}</span>
+              <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+                <span style="font:400 16px/1.25 'Roboto Flex',sans-serif">{{ r.name }}</span>
+                <span style="font:400 13px/1.2 'Roboto Flex',sans-serif;color:{{ t.ink2 }}">{{ r.lines }}</span>
+              </span>
+              <span style="font:400 13px/1 'Roboto Flex',sans-serif;color:{{ t.ink2 }};font-variant-numeric:tabular-nums">{{ r.dist }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ settingsOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;z-index:20;background:{{ t.surface }};display:flex;flex-direction:column;padding-top:36px;animation:tin .18s ease-out">
+        <div style="height:64px;display:flex;align-items:center;gap:4px;padding:0 16px 0 4px">
+          <button onClick="{{ closeSettings }}" title="Natrag" style="width:48px;height:48px;border-radius:24px;border:none;background:transparent;color:{{ t.ink }};cursor:pointer;font-family:'Material Symbols Rounded';font-size:24px" style-hover="background:{{ t.surfC }}">arrow_back</button>
+          <span style="font:500 22px/1 'Roboto Flex',sans-serif">Postavke</span>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:8px 0 32px;display:flex;flex-direction:column">
+          <div style="padding:16px 24px 8px;font:500 14px/1 'Roboto Flex',sans-serif;color:{{ t.primary }}">Izgled</div>
+          <div style="padding:8px 24px 16px;display:flex;flex-direction:column;gap:12px">
+            <span style="font:400 16px/1.2 'Roboto Flex',sans-serif">Tema</span>
+            <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border:1px solid {{ t.outline }};border-radius:20px;overflow:hidden">
+              <sc-for list="{{ themeOpts }}" as="o" hint-placeholder-count="2">
+                <button onClick="{{ o.onClick }}" style="height:40px;border:none;background:{{ o.bg }};color:{{ o.fg }};font:500 14px/1 'Roboto Flex',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer">
+                  <span style="font-family:'Material Symbols Rounded';font-size:18px">{{ o.icon }}</span>{{ o.label }}
+                </button>
+              </sc-for>
+            </div>
+          </div>
+          <div style="padding:16px 24px 8px;font:500 14px/1 'Roboto Flex',sans-serif;color:{{ t.primary }}">Karta</div>
+          <div style="padding:8px 24px 16px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <span style="font:400 16px/1.2 'Roboto Flex',sans-serif">Radijus obližnjih stanica</span>
+              <span style="font:400 14px/1.3 'Roboto Flex',sans-serif;color:{{ t.ink2 }}">Stanice unutar ovog radijusa prikazuju se u kartici.</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid {{ t.outline }};border-radius:20px;overflow:hidden">
+              <sc-for list="{{ radiusOpts }}" as="o" hint-placeholder-count="3">
+                <button onClick="{{ o.onClick }}" style="height:40px;border:none;background:{{ o.bg }};color:{{ o.fg }};font:500 14px/1 'Roboto Flex',sans-serif;cursor:pointer;font-variant-numeric:tabular-nums">{{ o.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ toastOn }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;left:16px;right:16px;bottom:{{ toastBottom }}px;z-index:30;min-height:48px;display:flex;align-items:center;padding:12px 16px;box-sizing:border-box;border-radius:8px;background:{{ t.inverse }};color:{{ t.onInverse }};font:400 14px/1.35 'Roboto Flex',sans-serif;box-shadow:0 4px 12px rgba(0,0,0,.25);animation:tin .2s ease-out">{{ toast }}</div>
+    </sc-if>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;height:22px;display:flex;align-items:center;justify-content:center;z-index:40;pointer-events:none">
+      <span style="width:108px;height:4px;border-radius:2px;background:{{ t.ink }};opacity:.85"></span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;},&quot;startSnap&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;peek&quot;,&quot;half&quot;,&quot;full&quot;],&quot;default&quot;:&quot;half&quot;,&quot;tsType&quot;:&quot;'peek'|'half'|'full'&quot;},&quot;zoom&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:13,&quot;max&quot;:17,&quot;step&quot;:1,&quot;default&quot;:15,&quot;tsType&quot;:&quot;number&quot;}}">
+const USER = [45.8134, 15.9601];
+const STOPS = [
+  { id: 'tud', name: 'Trg dr. F. Tuđmana', dist: 81, lat: 45.8126, lng: 15.9594, lines: ['1', '6', '11', '2', '138'] },
+  { id: 'bri', name: 'Britanski trg', dist: 420, lat: 45.8131, lng: 15.9668, lines: ['6', '11', '12', '101', '102', '103'] },
+  { id: 'man', name: 'Mandaličina', dist: 610, lat: 45.8120, lng: 15.9520, lines: ['2', '6', '11', '12'] },
+  { id: 'zk', name: 'Zapadni kolodvor', dist: 690, lat: 45.8075, lng: 15.9585, lines: ['1', '17', '138'] },
+  { id: 'trh', name: 'Trg Republike Hrvatske', dist: 780, lat: 45.8098, lng: 15.9690, lines: ['12', '13', '14', '17'] }
+];
+const DEST = {
+  '1': ['Zapadni kolodvor', 'Borongaj'], '2': ['Črnomerec', 'Savišće'], '6': ['Črnomerec', 'Sopot'],
+  '11': ['Črnomerec', 'Dubec'], '12': ['Ljubljanica', 'Dubrava'], '13': ['Žitnjak', 'Kvaternikov trg'],
+  '14': ['Mihaljevac', 'Zapruđe'], '17': ['Prečko', 'Borongaj'], '101': ['Britanski trg', 'Gornje Prekrižje'],
+  '102': ['Britanski trg', 'Mihaljevac'], '103': ['Britanski trg', 'Kozjak'], '138': ['Zapadni kolodvor', 'Gornja Kustošija']
+};
+const WEST = ['Črnomerec', 'Mandaličina', 'Savišće', 'Prečko', 'Ljubljanica', 'Zapadni kolodvor', 'Gornja Kustošija'];
+const CORRIDOR = ['Črnomerec', 'Mandaličina', 'Trg dr. F. Tuđmana', 'Britanski trg', 'Frankopanska', 'Trg bana J. Jelačića', 'Draškovićeva'];
+const ROUTE = [[45.8152, 15.9378], [45.8121, 15.9500], [45.8126, 15.9594], [45.8131, 15.9668], [45.8125, 15.9725], [45.8130, 15.9768], [45.8121, 15.9830]];
+const THEMES = {
+  light: {
+    surface: 'oklch(0.985 0.004 255)', surfC: 'oklch(0.955 0.008 255)', surfCH: 'oklch(0.94 0.01 255)', scrim: 'oklch(0.985 0.004 255 / .85)',
+    ink: 'oklch(0.22 0.02 260)', ink2: 'oklch(0.45 0.02 260)', outline: 'oklch(0.75 0.015 260)', outlineV: 'oklch(0.9 0.01 260)',
+    primary: 'oklch(0.48 0.15 258)', onPrimary: 'oklch(0.99 0 0)', primaryC: 'oklch(0.9 0.05 258)', onPrimaryC: 'oklch(0.28 0.1 258)',
+    tram: 'oklch(0.48 0.15 258)', tramInk: 'oklch(0.99 0 0)', bus: 'oklch(0.56 0.14 45)', busInk: 'oklch(0.99 0 0)',
+    live: 'oklch(0.56 0.2 27)', liveC: 'oklch(0.93 0.04 27)', onLiveC: 'oklch(0.42 0.16 27)',
+    ok: 'oklch(0.58 0.15 150)', warn: 'oklch(0.52 0.13 60)', inverse: 'oklch(0.3 0.02 260)', onInverse: 'oklch(0.95 0.008 260)'
+  },
+  dark: {
+    surface: 'oklch(0.18 0.012 260)', surfC: 'oklch(0.22 0.014 260)', surfCH: 'oklch(0.26 0.016 260)', scrim: 'oklch(0.18 0.012 260 / .85)',
+    ink: 'oklch(0.94 0.008 260)', ink2: 'oklch(0.74 0.015 260)', outline: 'oklch(0.5 0.015 260)', outlineV: 'oklch(0.32 0.015 260)',
+    primary: 'oklch(0.8 0.1 255)', onPrimary: 'oklch(0.27 0.08 258)', primaryC: 'oklch(0.36 0.09 258)', onPrimaryC: 'oklch(0.92 0.04 258)',
+    tram: 'oklch(0.8 0.1 255)', tramInk: 'oklch(0.24 0.08 258)', bus: 'oklch(0.8 0.11 60)', busInk: 'oklch(0.27 0.07 50)',
+    live: 'oklch(0.72 0.17 27)', liveC: 'oklch(0.34 0.08 27)', onLiveC: 'oklch(0.92 0.04 27)',
+    ok: 'oklch(0.78 0.14 150)', warn: 'oklch(0.82 0.12 75)', inverse: 'oklch(0.92 0.008 260)', onInverse: 'oklch(0.25 0.02 260)'
+  }
+};
+const TILE = 'https://tile.openstreetmap.de/{z}/{x}/{y}.png';
+const SNAPS = { peek: 200, half: 520, full: 860 };
+const isTram = l => Number(l) < 100;
+const pad = n => String(n).padStart(2, '0');
+const hm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+const rnd = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+let UID = 1;
+
+function genArrivals(stop) {
+  const out = [];
+  stop.lines.forEach(l => DEST[l].forEach(dst => {
+    const first = rnd(10, 700), hw = isTram(l) ? rnd(360, 600) : rnd(600, 1000);
+    for (let k = 0; k < 3; k++) out.push(mkArrival(l, dst, first + k * hw));
+  }));
+  out.sort((a, b) => a.eta - b.eta);
+  out[0].eta = 25; out[0].mode = 'rt';
+  return out;
+}
+function mkArrival(line, dest, eta) {
+  const mode = eta < 900 ? (Math.random() < 0.72 ? 'rt' : 'est') : 'sched';
+  return { id: UID++, line, dest, eta: Math.round(eta), mode, delay: mode === 'sched' ? 0 : pick([0, 0, 0, 2, 3, 5, -1]), vehicle: (isTram(line) ? 2100 : 800) + Math.floor(rnd(0, 180)) };
+}
+function genVehicles() {
+  const lines = Object.keys(DEST), v = [];
+  for (let i = 0; i < 44; i++) {
+    const a = rnd(0, Math.PI * 2), sp = rnd(0.000015, 0.00004);
+    v.push({ id: i, line: pick(lines), lat: 45.8115 + rnd(-0.014, 0.014), lng: 15.962 + rnd(-0.034, 0.034), dlat: Math.sin(a) * sp, dlng: Math.cos(a) * sp * 1.4 });
+  }
+  return v;
+}
+
+class Component extends DCLogic {
+  state = {
+    theme: this.props.theme ?? 'light', stopId: 'tud', show: { tram: true, bus: true }, now: new Date(),
+    arrivals: genArrivals(STOPS[0]), sheetH: SNAPS[this.props.startSnap ?? 'half'], dragging: false,
+    detailId: null, favs: { tud: true }, notify: {}, searchOpen: false, settingsOpen: false, radius: 800, query: '', toast: null
+  };
+  vehicles = genVehicles();
+
+  componentDidMount() {
+    this.timer = setInterval(() => this.tick(), 1000);
+    this.waitL();
+  }
+  componentWillUnmount() {
+    clearInterval(this.timer); clearTimeout(this.toastT); clearTimeout(this.waitT);
+    window.removeEventListener('pointermove', this.onMove); window.removeEventListener('pointerup', this.onUp);
+    if (this.map) this.map.remove();
+  }
+  waitL() { if (window.L && this.mapEl) this.initMap(); else this.waitT = setTimeout(() => this.waitL(), 100); }
+  T() { return THEMES[this.state.theme]; }
+  stop() { return STOPS.find(s => s.id === this.state.stopId); }
+  zoom() { return this.props.zoom ?? 15; }
+
+  syncMap() {
+    if (this.props.theme && this.props.theme !== this._lastPropTheme) {
+      const first = this._lastPropTheme === undefined;
+      this._lastPropTheme = this.props.theme;
+      if (!first && this.props.theme !== this.state.theme) { this.setState({ theme: this.props.theme }); return; }
+    }
+    if (!this.map) return;
+    const st = this.state;
+    if (st.theme !== this._lt) { this._lt = st.theme; this.setTiles(); this.refreshIcons(); this.drawStops(); this.drawRoute(); }
+    if (st.stopId !== this._ls) { this._ls = st.stopId; const s = this.stop(); this.centerOn([s.lat, s.lng]); this.drawStops(); }
+    if (st.detailId !== this._ld) { this._ld = st.detailId; this.drawRoute(); }
+    if (this.radius && this.radius.getRadius() !== st.radius) this.radius.setRadius(st.radius);
+  }
+  initMap() {
+    const L = window.L;
+    this.map = L.map(this.mapEl, { zoomControl: false, attributionControl: true, minZoom: 11, maxZoom: 18, zoomSnap: 0.5 }).setView([45.8126, 15.9600], this.zoom());
+    this.map.attributionControl.setPrefix(false).setPosition('topright');
+    this.rend = L.svg({ padding: 0.5 }); this.rend.addTo(this.map);
+    this.setTiles();
+    this.radius = L.circle(USER, { renderer: this.rend, radius: this.state.radius, weight: 1.5, dashArray: '2 6', fillOpacity: 0.05, interactive: false }).addTo(this.map);
+    this.userM = L.marker(USER, { interactive: false, zIndexOffset: 500, icon: L.divIcon({ className: '', iconSize: [28, 28], iconAnchor: [14, 14], html: '<div style="width:28px;height:28px;border-radius:50%;background:rgba(40,100,230,.2);display:flex;align-items:center;justify-content:center"><div style="width:14px;height:14px;border-radius:50%;background:#2b66e0;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)"></div></div>' }) }).addTo(this.map);
+    this.vMarkers = this.vehicles.map(v => L.marker([v.lat, v.lng], { icon: this.vIcon(v.line, false) }).addTo(this.map));
+    this.routeL = L.polyline([], { renderer: this.rend, weight: 6, opacity: 0.9, lineCap: 'round', interactive: false }).addTo(this.map);
+    this.stopMs = STOPS.map(s => L.marker([s.lat, s.lng], { icon: this.stopIcon(false), zIndexOffset: -100 }).on('click', () => this.selectStop(s.id)).addTo(this.map));
+    this.selM = L.marker(USER, { icon: this.vIcon('1', true), zIndexOffset: 1000, opacity: 0, interactive: false }).addTo(this.map);
+    this.drawStops();
+    this.centerOn([this.stop().lat, this.stop().lng]);
+    this._lt = this.state.theme; this._ls = this.state.stopId; this._ld = this.state.detailId;
+  }
+  setTiles() {
+    const L = window.L, dark = this.state.theme === 'dark';
+    if (this.tiles) this.map.removeLayer(this.tiles);
+    this.tiles = L.tileLayer(TILE, { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(this.map);
+    this.map.getPane('tilePane').style.filter = dark ? 'invert(1) hue-rotate(180deg) brightness(.92) contrast(.82) saturate(.45)' : 'saturate(.55) brightness(1.03)';
+    const t = this.T();
+    if (this.radius) this.radius.setStyle({ color: t.primary, fillColor: t.primary });
+  }
+  vIcon(line, sel) {
+    const t = this.T(), tram = isTram(line), bg = tram ? t.tram : t.bus, fg = tram ? t.tramInk : t.busInk;
+    const s = sel ? 1.3 : 1, h = Math.round(22 * s), w = Math.round((line.length > 2 ? 36 : tram ? 30 : 26) * s);
+    return window.L.divIcon({ className: '', iconSize: [w, h], iconAnchor: [w / 2, h / 2], html: `<div style="width:${w}px;height:${h}px;border-radius:${tram ? h / 2 : 5 * s}px;background:${bg};color:${fg};display:flex;align-items:center;justify-content:center;font:650 ${Math.round(12 * s)}px/1 'Roboto Flex',sans-serif;border:2px solid ${t.surface};box-sizing:border-box;box-shadow:0 1px 3px rgba(0,0,0,.3)">${line}</div>` });
+  }
+  refreshIcons() {
+    if (!this.vMarkers) return;
+    this.vMarkers.forEach((m, i) => m.setIcon(this.vIcon(this.vehicles[i].line, false)));
+    if (this.selM && this.selOn) this.selM.setIcon(this.vIcon(this.selLine, true));
+  }
+  stopIcon(act) {
+    const t = this.T(), d = act ? 20 : 12;
+    return window.L.divIcon({ className: '', iconSize: [d, d], iconAnchor: [d / 2, d / 2], html: `<div style="width:${d}px;height:${d}px;border-radius:50%;box-sizing:border-box;background:${act ? t.primary : t.surface};border:${act ? 3 : 2}px solid ${act ? t.surface : t.ink2};box-shadow:0 1px 3px rgba(0,0,0,.25);cursor:pointer"></div>` });
+  }
+  drawStops() {
+    if (!this.stopMs) return;
+    this.stopMs.forEach((m, i) => { const act = STOPS[i].id === this.state.stopId; m.setIcon(this.stopIcon(act)); m.setZIndexOffset(act ? 200 : -100); });
+  }
+  detail() { return this.state.arrivals.find(a => a.id === this.state.detailId); }
+  vehiclePos(a) {
+    const from = WEST.includes(a.dest) ? ROUTE[4] : ROUTE[0], to = ROUTE[2];
+    const p = Math.max(0, Math.min(1, 1 - a.eta / 520));
+    return [from[0] + (to[0] - from[0]) * p, from[1] + (to[1] - from[1]) * p];
+  }
+  drawRoute() {
+    const L = window.L, t = this.T(), a = this.detail();
+    if (!this.routeL) return;
+    if (!a) { this.routeL.setLatLngs([]); this.selM.setOpacity(0); this.selOn = false; return; }
+    const col = isTram(a.line) ? t.tram : t.bus;
+    this.routeL.setStyle({ color: col }); this.routeL.setLatLngs(ROUTE); this.routeL.bringToFront();
+    this.selLine = a.line; this.selOn = true;
+    this.selM.setIcon(this.vIcon(a.line, true)); this.selM.setLatLng(this.vehiclePos(a)); this.selM.setOpacity(1);
+    this.map.fitBounds(L.latLngBounds([this.vehiclePos(a), [this.stop().lat, this.stop().lng]]).pad(0.5), { paddingBottomRight: [0, this.state.sheetH], paddingTopLeft: [0, 120], maxZoom: 16, animate: false });
+  }
+  centerOn(ll, z) {
+    z = z ?? this.zoom();
+    const p = this.map.project(ll, z).add([0, this.state.sheetH / 2 - 60]);
+    this.map.setView(this.map.unproject(p, z), z, { animate: false });
+  }
+
+  tick() {
+    const arrivals = this.state.arrivals.map(a => ({ ...a, eta: a.eta - 1 }));
+    const kept = arrivals.filter(a => a.eta > -15 || a.id === this.state.detailId);
+    const stop = this.stop();
+    while (kept.length < arrivals.length) { const l = pick(stop.lines); kept.push(mkArrival(l, pick(DEST[l]), rnd(1200, 2000))); }
+    kept.forEach(a => { if (a.mode === 'sched' && a.eta < 900) a.mode = 'est'; });
+    kept.sort((a, b) => a.eta - b.eta);
+    Object.keys(this.state.notify).forEach(id => { const a = kept.find(x => x.id == id); if (this.state.notify[id] && a && a.eta === 120) this.showToast(`Linija ${a.line} stiže za 2 minute.`); });
+    this.setState({ arrivals: kept, now: new Date() });
+    if (this.vMarkers) {
+      this.vehicles.forEach((v, i) => {
+        v.lat += v.dlat; v.lng += v.dlng;
+        if (Math.abs(v.lat - 45.8115) > 0.015) v.dlat *= -1;
+        if (Math.abs(v.lng - 15.962) > 0.036) v.dlng *= -1;
+        this.vMarkers[i].setLatLng([v.lat, v.lng]);
+      });
+      const d = this.detail();
+      if (this.selM && this.selOn && d) this.selM.setLatLng(this.vehiclePos(d));
+    }
+  }
+  showToast(msg) {
+    clearTimeout(this.toastT);
+    this.setState({ toast: msg });
+    this.toastT = setTimeout(() => this.setState({ toast: null }), 2800);
+  }
+  selectStop(id) {
+    const s = STOPS.find(x => x.id === id);
+    this.setState({ stopId: id, arrivals: genArrivals(s), detailId: null, searchOpen: false, query: '', sheetH: Math.max(this.state.sheetH, SNAPS.half) });
+  }
+  onDragStart = e => {
+    this.drag = { y: e.clientY, h: this.state.sheetH, moved: false };
+    this.setState({ dragging: true });
+    window.addEventListener('pointermove', this.onMove); window.addEventListener('pointerup', this.onUp);
+  };
+  onMove = e => {
+    if (!this.drag) return;
+    const dy = this.drag.y - e.clientY;
+    if (Math.abs(dy) > 4) this.drag.moved = true;
+    this.setState({ sheetH: Math.max(140, Math.min(880, this.drag.h + dy)) });
+  };
+  onUp = () => {
+    window.removeEventListener('pointermove', this.onMove); window.removeEventListener('pointerup', this.onUp);
+    const h = this.state.sheetH, snap = Object.values(SNAPS).reduce((b, v) => Math.abs(v - h) < Math.abs(b - h) ? v : b);
+    this.justDragged = this.drag && this.drag.moved;
+    this.drag = null;
+    this.setState({ dragging: false, sheetH: snap });
+  };
+
+  fmt(a, t) {
+    const tram = isTram(a.line), min = Math.max(1, Math.round(a.eta / 60));
+    const arriving = a.eta <= 45 && a.mode !== 'sched';
+    let primary, unit, primaryColor = t.ink;
+    if (a.mode === 'sched') { primary = hm(new Date(this.state.now.getTime() + a.eta * 1000)); unit = ''; primaryColor = t.ink2; }
+    else { primary = a.mode === 'est' ? '≈' + min : String(min); unit = 'min'; }
+    const delay = a.delay > 0 ? `· kasni ${a.delay} min` : a.delay < 0 ? `· ${-a.delay} min ranije` : '· na vrijeme';
+    return {
+      line: a.line, dest: a.dest, bg: tram ? t.tram : t.bus, fg: tram ? t.tramInk : t.busInk, radius: tram ? '20px' : '10px',
+      arriving, notArriving: !arriving, primary, unit, primaryColor,
+      mode: a.mode === 'rt' ? 'Uživo' : a.mode === 'est' ? 'Procjena' : 'Raspored',
+      dot: a.mode === 'rt' ? t.ok : a.mode === 'est' ? 'transparent' : t.outline,
+      dotRing: a.mode === 'rt' ? t.ok : a.mode === 'est' ? t.ink2 : t.outline,
+      hasDelay: a.mode === 'rt', delay, delayColor: a.delay > 0 ? t.warn : t.ok
+    };
+  }
+  nextLabel(list) {
+    if (!list.length) return ' ';
+    const sched = list.every(a => a.mode === 'sched');
+    return 'zatim ' + (sched ? list.map(a => hm(new Date(this.state.now.getTime() + a.eta * 1000))).join(', ')
+      : list.map(a => Math.max(1, Math.round(a.eta / 60))).join(', ') + ' min');
+  }
+
+  renderVals() {
+    const t = this.T(), s = this.stop(), st = this.state;
+    queueMicrotask(() => { try { this.syncMap(); } catch (e) { console.warn('syncMap', e && e.message); } });
+    const vis = st.arrivals.filter(a => isTram(a.line) ? st.show.tram : st.show.bus);
+    const gmap = new Map();
+    vis.forEach(a => { const k = a.line + '|' + a.dest; if (!gmap.has(k)) gmap.set(k, []); gmap.get(k).push(a); });
+    const groups = [...gmap.values()].slice(0, 12).map(list => {
+      const a = list[0];
+      return { ...this.fmt(a, t), next: this.nextLabel(list.slice(1, 3)), onClick: () => this.setState({ detailId: a.id, sheetH: SNAPS.half }) };
+    });
+    const lineCount = k => new Set(st.arrivals.filter(a => (k === 'tram') === isTram(a.line)).map(a => a.line)).size;
+    const filters = [['tram', 'Tramvaji', 'tram'], ['bus', 'Autobusi', 'directions_bus']].map(([k, label, ic]) => {
+      const on = st.show[k];
+      return { label, count: lineCount(k), icon: on ? 'check' : ic, bg: on ? t.primaryC : 'transparent', fg: on ? t.onPrimaryC : t.ink2, border: on ? t.primaryC : t.outline, onClick: () => this.setState({ show: { ...st.show, [k]: !on } }) };
+    });
+    const chips = STOPS.filter(x => x.id !== st.stopId && x.dist <= st.radius).map(x => ({ name: x.name, dist: x.dist + ' m', bg: 'transparent', fg: t.ink, border: t.outline, onClick: () => this.selectStop(x.id) }));
+    const fav = !!st.favs[s.id];
+
+    let d = { timeline: [] };
+    const a = this.detail();
+    if (a) {
+      const f = this.fmt(a, t), col = f.bg;
+      let seq = WEST.includes(a.dest) ? [...CORRIDOR].reverse() : [...CORRIDOR];
+      seq = seq.filter(n => n !== a.dest); seq.push(a.dest);
+      if (seq.indexOf(s.name) < 0) seq.splice(2, 0, s.name);
+      const yi = seq.indexOf(s.name), base = st.now.getTime() + a.eta * 1000;
+      const rows = seq.map((name, i) => ({ name, at: base + (i - yi) * 95000, you: i === yi }));
+      let lastPassed = -1; rows.forEach((r, i) => { if (r.at <= st.now.getTime()) lastPassed = i; });
+      const timeline = rows.map((r, i) => {
+        const passed = i <= lastPassed;
+        return {
+          name: r.you ? r.name + ' · tvoja stanica' : r.name, time: passed ? 'prošao' : hm(new Date(r.at)),
+          rail: col, railOpacity: passed ? 0.3 : 1, railTop: i === 0 ? '18px' : '0', railBottom: i === rows.length - 1 ? 'calc(100% - 18px)' : '0',
+          dotSize: r.you ? 20 : 14, dotFill: r.you ? col : t.surface,
+          weight: r.you ? 600 : 400, color: passed ? t.ink2 : t.ink, vehicleHere: i === lastPassed
+        };
+      });
+      const on = !!st.notify[a.id];
+      d = {
+        line: a.line, dest: a.dest, bg: f.bg, fg: f.fg, radius: f.radius, vehicle: a.vehicle, icon: isTram(a.line) ? 'tram' : 'directions_bus',
+        meta: `${isTram(a.line) ? 'Tramvaj' : 'Autobus'} · vozilo ${a.vehicle}`,
+        primary: f.arriving ? 'Stiže' : f.primary, unit: f.arriving ? '' : f.unit, primaryColor: f.arriving ? t.live : t.ink,
+        status: a.mode === 'sched' ? 'Po rasporedu, bez GPS-a' : a.mode === 'est' ? 'Procjena prema zadnjoj poziciji' : a.delay > 0 ? `Uživo · kasni ${a.delay} min` : a.delay < 0 ? `Uživo · ${-a.delay} min ranije` : 'Uživo · na vrijeme',
+        statusColor: a.mode === 'rt' ? (a.delay > 0 ? t.warn : t.ok) : t.ink2,
+        notifyLabel: on ? 'Uključeno' : 'Podsjeti me', notifyIcon: on ? 'notifications_active' : 'notifications',
+        notifyBg: on ? t.primary : 'transparent', notifyFg: on ? t.onPrimary : t.primary, notifyBorder: on ? t.primary : t.outline,
+        timeline
+      };
+    }
+
+    const q = st.query.trim().toLowerCase();
+    const results = STOPS.filter(x => !q || x.name.toLowerCase().includes(q) || x.lines.some(l => l.startsWith(q)))
+      .map(x => ({ name: x.name, lines: 'Linije ' + x.lines.join(', '), dist: x.dist + ' m', icon: st.favs[x.id] ? 'star' : 'location_on', fill: st.favs[x.id] ? 1 : 0, onClick: () => this.selectStop(x.id) }));
+
+    return {
+      t, stop: { name: s.name, distLabel: `${s.dist} m · ${Math.max(1, Math.round(s.dist / 80))} min hoda` },
+      clockShort: hm(st.now), tramCount: 176 + (st.now.getSeconds() % 3), busCount: 348 + (st.now.getSeconds() % 5),
+      themeIcon: st.theme === 'light' ? 'dark_mode' : 'light_mode',
+      sheetH: st.sheetH, fabBottom: Math.min(st.sheetH, 640) + 16, toastBottom: Math.min(st.sheetH, 640) + 88,
+      sheetTransition: st.dragging ? 'none' : 'height .3s cubic-bezier(.2,.8,.2,1)',
+      mapRef: el => { this.mapEl = el; },
+      showList: !a, showDetail: !!a, groups, empty: groups.length === 0, filters, chips, d,
+      favFill: fav ? 1 : 0, favBg: fav ? t.primaryC : 'transparent', favFg: fav ? t.onPrimaryC : t.ink2,
+      toggleFav: () => { this.setState({ favs: { ...st.favs, [s.id]: !fav } }); this.showToast(fav ? 'Uklonjeno iz spremljenih' : 'Stanica spremljena'); },
+      toggleTheme: () => this.setState({ theme: st.theme === 'light' ? 'dark' : 'light' }),
+      locate: () => this.map && this.centerOn(USER),
+      onDragStart: this.onDragStart,
+      zoomBottom: Math.min(st.sheetH, 640) + 84,
+      zoomIn: () => this.map && this.map.zoomIn(1), zoomOut: () => this.map && this.map.zoomOut(1),
+      settingsOpen: st.settingsOpen, openSettings: () => this.setState({ settingsOpen: true }), closeSettings: () => this.setState({ settingsOpen: false }),
+      themeOpts: [['light', 'Svijetla', 'light_mode'], ['dark', 'Tamna', 'dark_mode']].map(([k, label, icon]) => ({ label, icon: st.theme === k ? 'check' : icon, bg: st.theme === k ? t.primaryC : 'transparent', fg: st.theme === k ? t.onPrimaryC : t.ink, onClick: () => this.setState({ theme: k }) })),
+      radiusOpts: [400, 800, 1200].map(m => ({ label: m + ' m', bg: st.radius === m ? t.primaryC : 'transparent', fg: st.radius === m ? t.onPrimaryC : t.ink, onClick: () => this.setState({ radius: m }) })),
+      cycleSnap: () => { if (this.justDragged) { this.justDragged = false; return; } this.setState({ sheetH: st.sheetH < SNAPS.half ? SNAPS.half : st.sheetH < SNAPS.full ? SNAPS.full : SNAPS.peek }); },
+      closeDetail: () => { this.setState({ detailId: null }); this.centerOn([s.lat, s.lng]); },
+      toggleNotify: () => {
+        if (!a) return; const on = !st.notify[a.id];
+        this.setState({ notify: { ...st.notify, [a.id]: on } });
+        this.showToast(on ? `Javit ćemo ti 2 minute prije dolaska linije ${a.line}` : 'Podsjetnik isključen');
+      },
+      searchOpen: st.searchOpen, query: st.query, results, searchHeading: q ? `Rezultati (${results.length})` : 'Stanice u blizini',
+      openSearch: () => this.setState({ searchOpen: true }), closeSearch: () => this.setState({ searchOpen: false, query: '' }),
+      onQuery: e => this.setState({ query: e.target.value }),
+      toastOn: !!st.toast, toast: st.toast
+    };
+  }
+}
+</script>
+</body>
+</html>
