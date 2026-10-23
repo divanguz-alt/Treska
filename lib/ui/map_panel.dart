@@ -196,6 +196,7 @@ class _MapPanelState extends State<MapPanel> {
     final zoom = _map.camera.zoom > 0
         ? _map.camera.zoom
         : MapPanel.zoomForRadius(widget.settings.radiusM);
+    // Always use current bottom inset so it stays correct whether panel open or closed
     _map.move(_shiftForSheet(target, zoom), zoom, id: 'move_${_moveId++}');
   }
 

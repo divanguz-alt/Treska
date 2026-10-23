@@ -47,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// Current sheet size as a fraction of the screen height, animated between
   /// the snap points.
   late final DraggableScrollableController _sheet;
+  bool _sheetCollapsed = false;
 
   @override
   void initState() {
@@ -81,10 +82,6 @@ class _HomeScreenState extends State<HomeScreen>
     return (peek: peek, half: half, full: full);
   }
 
-  double _halfFraction() {
-    final screen = MediaQuery.of(context).size.height;
-    return _fractions(screen).half;
-  }
 
   /// Shared by the stop dropdown and the search screen: select a stop, switch
   /// to the mode it actually serves, and make sure the sheet is open.
@@ -106,20 +103,23 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _expandSheet() {
     if (!_sheet.isAttached) return;
-    final target = _halfFraction();
-    if (_sheet.size < target - 0.01) {
-      _sheet.animateTo(
-        target,
-        duration: ZetMotion.sheet,
-        curve: ZetMotion.emphasized,
-      );
-    }
+    _sheetCollapsed = false;
+    setState(() {});
+    final screen = MediaQuery.of(context).size.height;
+    final fractions = _fractions(screen);
+    _sheet.animateTo(
+      fractions.half,
+      duration: ZetMotion.sheet,
+      curve: ZetMotion.emphasized,
+    );
   }
 
   void _collapseSheet() {
     if (!_sheet.isAttached) return;
+    _sheetCollapsed = true;
+    setState(() {});
     _sheet.animateTo(
-      0,
+      0.001,
       duration: ZetMotion.sheet,
       curve: ZetMotion.emphasized,
     );
@@ -144,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen>
             final sheetPx = _sheet.isAttached
                 ? _sheet.size * screen
                 : fractions.half * screen;
-            final hidden = _sheet.isAttached && _sheet.size < 0.02;
+            final hidden = _sheet.isAttached && _sheet.size < 0.012 || _sheetCollapsed;
 
             return Stack(
               children: [
@@ -185,9 +185,33 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
 
+                IgnorePointer(
+                  ignoring: !hidden,
+                  child: AnimatedOpacity(
+                    opacity: hidden ? 1 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        _sheetCollapsed = false;
+                        setState(() {});
+                        final screen = MediaQuery.of(context).size.height;
+                        final fractions = _fractions(screen);
+                        if (_sheet.isAttached) {
+                          _sheet.animateTo(
+                            fractions.half,
+                            duration: ZetMotion.sheet,
+                            curve: ZetMotion.emphasized,
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ),
+
                 _BottomSheetHost(
                   controller: _sheet,
-                  minChild: 0,
+                  minChild: 0.001,
                   initialChild: fractions.half,
                   maxChild: fractions.full,
                   peek: fractions.peek,
@@ -219,8 +243,26 @@ class _HomeScreenState extends State<HomeScreen>
                           media.viewPadding.bottom,
                         ) +
                         ZetSpace.lg,
-                    child: Center(
-                      child: _ShowBoardPill(onTap: _expandSheet),
+                    child: SafeArea(
+                      top: false,
+                      child: Center(
+                        child: IgnorePointer(
+                          ignoring: false,
+                          child: _ShowBoardPill(onTap: () {
+                            _sheetCollapsed = false;
+                            setState(() {});
+                            final screen = MediaQuery.of(context).size.height;
+                            final fractions = _fractions(screen);
+                            if (_sheet.isAttached) {
+                              _sheet.animateTo(
+                                fractions.half,
+                                duration: ZetMotion.sheet,
+                                curve: ZetMotion.emphasized,
+                              );
+                            }
+                          }),
+                        ),
+                      ),
                     ),
                   ),
               ],

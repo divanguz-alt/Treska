@@ -180,7 +180,7 @@ class _BoardScroll extends StatelessWidget {
         final now = DateTime.now();
         return CustomScrollView(
           controller: scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
+          physics: const ClampingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
           slivers: [
             SliverPersistentHeader(
               pinned: true,
