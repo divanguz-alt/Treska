@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
@@ -372,26 +370,12 @@ class _BoardLegend extends StatelessWidget {
       color: colors.textDim,
     );
 
-    // The legend sits at the very bottom of the sheet, so it has to clear the
-    // Android gesture handle / navigation area or the system draws straight
-    // over the labels. `viewPadding` is the raw system inset and is *not*
-    // consumed by anything here, while `padding` can be zeroed by an ancestor
-    // that already absorbed it, so take whichever is larger and fall back to the
-    // gesture-handle estimate when both report nothing (some emulators and
-    // edge-to-edge modes report 0).
-    final mq = MediaQuery.of(context);
-    final rawInset = math.max(mq.padding.bottom, mq.viewPadding.bottom);
-    // 24 dp ≈ the standard gesture handle area when the platform reports 0.
-    final bottomInset = rawInset > 0 ? rawInset : 24.0;
-
+    // The bottom safe area is handled by the sheet host, which lifts the whole
+    // sheet above the Android gesture handle, so the legend only needs its own
+    // content height here.
     return Container(
-      height: 34 + bottomInset,
-      padding: EdgeInsets.fromLTRB(
-        ZetSpace.sheet,
-        0,
-        ZetSpace.sheet,
-        bottomInset,
-      ),
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: ZetSpace.sheet),
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: colors.borderStrong)),
       ),

@@ -9,6 +9,7 @@ import 'package:zet2/ui/arrival_group.dart';
 import 'package:zet2/ui/map_panel.dart';
 import 'package:zet2/ui/widgets/arrival_row.dart';
 import 'package:zet2/ui/widgets/stop_card.dart';
+import 'package:zet2/ui/widgets/vehicle_marker.dart';
 
 void main() {
   final now = DateTime(2026, 10, 22, 17, 30, 0);
@@ -262,6 +263,86 @@ void main() {
       // Moving the camera down means a smaller latitude, same longitude.
       expect(shifted.latitude, lessThan(user.latitude));
       expect(shifted.longitude, user.longitude);
+    });
+  });
+
+  group('vehicle marker', () {
+    // A route number must never read upside-down. Only the badge outline is
+    // rotated to the bearing; the label is a sibling of the rotating shape, so
+    // no bearing — including due south — can turn the digits over.
+    testWidgets('never rotates the route number, at any bearing',
+        (tester) async {
+      const label = '17';
+
+      for (final bearing in [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildZetTheme(Brightness.light),
+            home: Scaffold(
+              body: Center(
+                child: VehicleMarkerWidget(
+                  vehicle: Vehicle(
+                    routeShortName: label,
+                    routeType: kRouteTypeTram,
+                    lat: 45.815,
+                    lon: 15.9819,
+                    bearing: bearing,
+                    headsign: 'Črnomerec',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The text widget exists and is upright: its transform chain contains
+        // no rotation. Find the ancestor Transform.rotate widgets that wrap it.
+        final textFinder = find.text(label);
+        expect(textFinder, findsOneWidget,
+            reason: 'label must render at bearing $bearing');
+
+        final rotatedAncestors = find.ancestor(
+          of: textFinder,
+          matching: find.byType(Transform),
+        );
+        // Walking the ancestors, none may apply a rotation to the label. The
+        // only Transform in the tree is the shape's, and it must not sit above
+        // the text.
+        for (final element in rotatedAncestors.evaluate()) {
+          final widget = element.widget as Transform;
+          final m = widget.transform;
+          // A pure translation/scale has m[1] == m[2] == 0; a rotation does not.
+          final isRotation = m.storage[1].abs() > 0.001 ||
+              m.storage[2].abs() > 0.001;
+          expect(isRotation, isFalse,
+              reason: 'the number must not be rotated at bearing $bearing');
+        }
+      }
+    });
+
+    testWidgets('a stationary vehicle gets no direction tip', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildZetTheme(Brightness.light),
+          home: Scaffold(
+            body: Center(
+              child: VehicleMarkerWidget(
+                vehicle: const Vehicle(
+                  routeShortName: '6',
+                  routeType: kRouteTypeTram,
+                  lat: 45.815,
+                  lon: 15.9819,
+                  bearing: 0,
+                  headsign: 'Sopot',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('6'), findsOneWidget);
     });
   });
 }

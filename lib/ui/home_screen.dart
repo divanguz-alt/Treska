@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
@@ -169,36 +171,47 @@ class _BottomSheetHost extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    return DraggableScrollableSheet(
-      controller: controller,
-      minChildSize: minChild,
-      initialChildSize: initialChild,
-      maxChildSize: maxChild,
-      snap: true,
-      snapSizes: [minChild, initialChild, maxChild],
-      builder: (context, scrollController) {
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            color: colors.bg,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(ZetRadius.sheet),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 18,
-                offset: const Offset(0, -4),
+    // The sheet is anchored to the bottom of the screen, so anything it puts at
+    // its own bottom edge — here the board legend — would sit under the Android
+    // gesture handle / navigation area. Lift the whole sheet by that inset
+    // instead of padding individual children, so every snap height stays
+    // correct and no bottom row can be drawn over.
+    final mq = MediaQuery.of(context);
+    final bottomInset = math.max(mq.padding.bottom, mq.viewPadding.bottom);
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: DraggableScrollableSheet(
+        controller: controller,
+        minChildSize: minChild,
+        initialChildSize: initialChild,
+        maxChildSize: maxChild,
+        snap: true,
+        snapSizes: [minChild, initialChild, maxChild],
+        builder: (context, scrollController) {
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              color: colors.bg,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(ZetRadius.sheet),
               ),
-            ],
-          ),
-          child: Column(
-            children: [
-              const _SheetHandle(),
-              Expanded(child: builder(context, scrollController)),
-            ],
-          ),
-        );
-      },
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 18,
+                  offset: const Offset(0, -4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                const _SheetHandle(),
+                Expanded(child: builder(context, scrollController)),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }
