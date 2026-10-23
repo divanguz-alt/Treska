@@ -204,7 +204,7 @@ class _BoardScroll extends StatelessWidget {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.only(top: ZetSpace.sm),
-                  child: StopHeader(stop: stop!),
+                  child: StopHeader(stop: stop!, settings: settings),
                 ),
               ),
               SliverToBoxAdapter(

@@ -3,22 +3,20 @@ import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../core/tokens.dart';
 import '../../data/models.dart';
+import '../../settings_controller.dart';
 import '../arrival_group.dart';
 import 'arrival_row.dart';
 
 /// Header for the board: the stop name, walking time and a favourite star.
-///
-/// Part of the sheet's scroll view (not a fixed card) so the whole board scrolls
-/// as one piece, as in the handoff.
 class StopHeader extends StatelessWidget {
   final NearbyStop stop;
-  final bool favourite;
+  final SettingsController settings;
   final VoidCallback? onToggleFavourite;
 
   const StopHeader({
     super.key,
     required this.stop,
-    this.favourite = false,
+    required this.settings,
     this.onToggleFavourite,
   });
 
@@ -26,6 +24,7 @@ class StopHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.zet;
     final walkMin = (stop.distanceM / 80).round().clamp(1, 99);
+    final favourite = settings.isFavorite(stop.stop.id);
 
     return Padding(
       // Handoff: `padding: 0 12px 10px 24px` — the stop name lines up with the
@@ -75,7 +74,7 @@ class StopHeader extends StatelessWidget {
           ),
           IconButton(
             tooltip: favourite ? 'Uklonjeno iz spremljenih' : 'Spremi stanicu',
-            onPressed: onToggleFavourite,
+            onPressed: onToggleFavourite ?? () => settings.toggleFavorite(stop.stop.id),
             icon: Icon(
               favourite ? Icons.star : Icons.star_border,
               size: 24,

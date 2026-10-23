@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zet2/core/theme.dart';
 import 'package:zet2/core/tokens.dart';
 import 'package:zet2/data/models.dart';
@@ -189,10 +190,14 @@ void main() {
 
   testWidgets('stop header shows name, distance and walking time',
       (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsController();
+    await settings.load();
     await tester.pumpWidget(
       host(
         StopHeader(
           stop: NearbyStop(stop: tramStop(), distanceM: 160, arrivals: const []),
+          settings: settings,
         ),
         Brightness.light,
       ),

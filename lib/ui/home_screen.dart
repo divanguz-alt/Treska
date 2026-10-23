@@ -107,22 +107,26 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() {});
     final screen = MediaQuery.of(context).size.height;
     final fractions = _fractions(screen);
-    _sheet.animateTo(
-      fractions.half,
-      duration: ZetMotion.sheet,
-      curve: ZetMotion.emphasized,
-    );
+    try {
+      _sheet.animateTo(
+        fractions.half,
+        duration: ZetMotion.sheet,
+        curve: ZetMotion.emphasized,
+      );
+    } catch (_) {}
   }
 
   void _collapseSheet() {
     if (!_sheet.isAttached) return;
     _sheetCollapsed = true;
     setState(() {});
-    _sheet.animateTo(
-      0.001,
-      duration: ZetMotion.sheet,
-      curve: ZetMotion.emphasized,
-    );
+    try {
+      _sheet.animateTo(
+        0.002,
+        duration: ZetMotion.sheet,
+        curve: ZetMotion.emphasized,
+      );
+    } catch (_) {}
   }
 
   @override
@@ -144,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen>
             final sheetPx = _sheet.isAttached
                 ? _sheet.size * screen
                 : fractions.half * screen;
-            final hidden = _sheet.isAttached && _sheet.size < 0.012 || _sheetCollapsed;
+            final hidden = _sheet.isAttached && _sheet.size < 0.008 || _sheetCollapsed;
 
             return Stack(
               children: [
@@ -254,11 +258,13 @@ class _HomeScreenState extends State<HomeScreen>
                             final screen = MediaQuery.of(context).size.height;
                             final fractions = _fractions(screen);
                             if (_sheet.isAttached) {
-                              _sheet.animateTo(
-                                fractions.half,
-                                duration: ZetMotion.sheet,
-                                curve: ZetMotion.emphasized,
-                              );
+                              try {
+                                _sheet.animateTo(
+                                  fractions.half,
+                                  duration: ZetMotion.sheet,
+                                  curve: ZetMotion.emphasized,
+                                );
+                              } catch (_) {}
                             }
                           }),
                         ),
