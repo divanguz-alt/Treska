@@ -22,6 +22,12 @@ class MapPanel extends StatefulWidget {
   final SettingsController settings;
   final int mode; // kModeTram or kModeBus
 
+  /// Stop highlighted on the map and selected in the board.
+  final String? selectedStopId;
+
+  /// Called when a stop is picked in the search screen.
+  final ValueChanged<String> onStopSelected;
+
   /// How much of the screen the bottom sheet covers (0..1), used to keep the
   /// zoom controls and FAB just above it.
   final double sheetFraction;
@@ -35,6 +41,8 @@ class MapPanel extends StatefulWidget {
     required this.themeController,
     required this.settings,
     required this.mode,
+    required this.onStopSelected,
+    this.selectedStopId,
     this.sheetFraction = 0,
     this.bottomInsetPx = 0,
   });
@@ -103,6 +111,12 @@ class _MapPanelState extends State<MapPanel> {
   /// every animation frame) schedules at most one move per frame instead of
   /// stacking callbacks.
   bool _recenterScheduled = false;
+
+  /// Vehicle whose route is drawn, and the geometry once the worker returns it.
+  Vehicle? _selectedVehicle;
+  List<LatLng>? _selectedShape;
+  bool _shapeLoading = false;
+  int _shapeRequest = 0;
 
   @override
   void initState() {
@@ -208,6 +222,66 @@ class _MapPanelState extends State<MapPanel> {
     _map.move(center, next, id: 'move_${_moveId++}');
   }
 
+  /// Tapping a badge draws the vehicle's route and leaves it highlighted.
+  Future<void> _selectVehicle(Vehicle vehicle) async {
+    final request = ++_shapeRequest;
+    setState(() {
+      _selectedVehicle = vehicle;
+      _selectedShape = null;
+      _shapeLoading = true;
+    });
+    final points = await widget.feed.shapeFor(
+      shapeId: vehicle.shapeId,
+      tripId: vehicle.tripId,
+    );
+    if (!mounted || request != _shapeRequest) return;
+    setState(() {
+      _selectedShape = points.length > 1 ? points : null;
+      _shapeLoading = false;
+    });
+  }
+
+  void _clearVehicleSelection() {
+    if (_selectedVehicle == null && _selectedShape == null) return;
+    _shapeRequest++;
+    setState(() {
+      _selectedVehicle = null;
+      _selectedShape = null;
+      _shapeLoading = false;
+    });
+  }
+
+  bool _isSelected(Vehicle vehicle) {
+    final selected = _selectedVehicle;
+    if (selected == null) return false;
+    if (selected.tripId.isNotEmpty && vehicle.tripId.isNotEmpty) {
+      return selected.tripId == vehicle.tripId;
+    }
+    return selected.routeShortName == vehicle.routeShortName &&
+        (selected.lat - vehicle.lat).abs() < 0.001 &&
+        (selected.lon - vehicle.lon).abs() < 0.001;
+  }
+
+  /// Moves the camera to a stop picked in search so the board and map agree.
+  void _focusStop(String stopId) {
+    StopInfo? stop;
+    for (final s in widget.feed.stops.value) {
+      if (s.id == stopId) {
+        stop = s;
+        break;
+      }
+    }
+    if (stop == null) return;
+    _clearVehicleSelection();
+    if (!_mapReady) return;
+    if (_followUser) setState(() => _followUser = false);
+    _map.move(
+      LatLng(stop.lat, stop.lon),
+      16,
+      id: 'move_${_moveId++}',
+    );
+  }
+
   List<CircleMarker> _circlesFor(
       BuildContext context, List<StopInfo> all, int mode) {
     final brightness = Theme.of(context).brightness;
@@ -260,6 +334,18 @@ class _MapPanelState extends State<MapPanel> {
                   _circlesFor(context, widget.feed.stops.value, widget.mode);
               final radius = widget.settings.radiusM;
 
+              StopInfo? focusedStop;
+              if (widget.selectedStopId != null) {
+                for (final s in widget.feed.stops.value) {
+                  if (s.id == widget.selectedStopId) {
+                    focusedStop = s;
+                    break;
+                  }
+                }
+              }
+              final selectedShape = _selectedShape;
+              final selectedVehicle = _selectedVehicle;
+
               return FlutterMap(
                 mapController: _map,
                 options: MapOptions(
@@ -281,6 +367,7 @@ class _MapPanelState extends State<MapPanel> {
                       setState(() => _followUser = false);
                     }
                   },
+                  onTap: (_, _) => _clearVehicleSelection(),
                   // The controller only becomes safe to read once the map has
                   // been laid out; camera reads elsewhere are gated on this.
                   onMapReady: () => _mapReady = true,
@@ -305,6 +392,34 @@ class _MapPanelState extends State<MapPanel> {
                       errorTileCallback: (_, _, _) => _onTileError(),
                     ),
                   CircleLayer(circles: circles),
+                  // Highlight the stop picked in search or in the board's
+                  // picker, so the board and map never disagree about where
+                  // "the selected stop" is.
+                  if (focusedStop != null)
+                    CircleLayer(circles: [
+                      CircleMarker(
+                        point: LatLng(focusedStop.lat, focusedStop.lon),
+                        radius: 15,
+                        useRadiusInMeter: false,
+                        color: colors.primary.withValues(alpha: 0.16),
+                        borderColor: colors.primary,
+                        borderStrokeWidth: 2.5,
+                      ),
+                    ]),
+                  // Route of the tapped vehicle, drawn under the badges.
+                  if (selectedShape != null)
+                    PolylineLayer(polylines: [
+                      Polyline(
+                        points: selectedShape,
+                        strokeWidth: 5,
+                        color: (selectedVehicle?.isTram ?? true
+                                ? colors.tram
+                                : colors.bus)
+                            .withValues(alpha: 0.9),
+                        borderStrokeWidth: 2,
+                        borderColor: colors.bg,
+                      ),
+                    ]),
                   // 800 m (or 400/1200) walking radius around the user.
                   CircleLayer(circles: [
                     CircleMarker(
@@ -321,10 +436,17 @@ class _MapPanelState extends State<MapPanel> {
                       for (final v in vehicles)
                         Marker(
                           point: LatLng(v.lat, v.lon),
-                          width: 46,
-                          height: 40,
+                          width: 56,
+                          height: 56,
                           alignment: Alignment.center,
-                          child: VehicleMarkerWidget(vehicle: v),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => _selectVehicle(v),
+                            child: VehicleMarkerWidget(
+                              vehicle: v,
+                              selected: _isSelected(v),
+                            ),
+                          ),
                         ),
                     ],
                   ),
@@ -355,6 +477,10 @@ class _MapPanelState extends State<MapPanel> {
                 feed: widget.feed,
                 themeController: widget.themeController,
                 settings: widget.settings,
+                onSelected: (stopId) {
+                  _focusStop(stopId);
+                  widget.onStopSelected(stopId);
+                },
               ),
               const SizedBox(height: 10),
               Row(
@@ -368,6 +494,20 @@ class _MapPanelState extends State<MapPanel> {
             ],
           ),
         ),
+
+        // Card for the tapped vehicle; the route is drawn behind it.
+        if (_selectedVehicle != null)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 116,
+            left: ZetSpace.lg,
+            right: ZetSpace.lg,
+            child: _VehicleCard(
+              vehicle: _selectedVehicle!,
+              loading: _shapeLoading,
+              hasShape: _selectedShape != null,
+              onClose: _clearVehicleSelection,
+            ),
+          ),
 
         // Zoom controls, above the sheet.
         Positioned(
@@ -428,6 +568,123 @@ class _Attribution extends StatelessWidget {
               color: colors.textDim,
               ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VehicleCard extends StatelessWidget {
+  final Vehicle vehicle;
+  final bool loading;
+  final bool hasShape;
+  final VoidCallback onClose;
+
+  const _VehicleCard({
+    required this.vehicle,
+    required this.loading,
+    required this.hasShape,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    final isTram = vehicle.isTram;
+    final fill = isTram ? colors.tram : colors.bus;
+    final ink = isTram ? colors.onTram : colors.onBus;
+
+    final subtitle = loading
+        ? 'Tražim rutu…'
+        : hasShape
+            ? 'Ruta je prikazana na karti'
+            : 'Ruta nije dostupna';
+
+    return Material(
+      color: colors.panel,
+      elevation: 5,
+      borderRadius: BorderRadius.circular(ZetRadius.card),
+      shadowColor: Colors.black.withValues(alpha: 0.24),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          ZetSpace.md,
+          ZetSpace.sm,
+          ZetSpace.xs,
+          ZetSpace.sm,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
+              child: Text(
+                vehicle.routeShortName,
+                maxLines: 1,
+                style: TextStyle(
+                  color: ink,
+                  fontSize: vehicle.routeShortName.length > 2 ? 11 : 14,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+              ),
+            ),
+            const SizedBox(width: ZetSpace.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    vehicle.headsign.isEmpty
+                        ? 'Linija ${vehicle.routeShortName}'
+                        : 'Linija ${vehicle.routeShortName}  →  '
+                            '${vehicle.headsign}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: colors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      if (loading) ...[
+                        const SizedBox(
+                          width: 11,
+                          height: 11,
+                          child: CircularProgressIndicator(strokeWidth: 1.8),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      Flexible(
+                        child: Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colors.textDim,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Zatvori rutu',
+              onPressed: onClose,
+              iconSize: 20,
+              color: colors.textDim,
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close),
+            ),
+          ],
         ),
       ),
     );
@@ -513,11 +770,26 @@ class _SearchBar extends StatelessWidget {
   final ThemeController themeController;
   final SettingsController settings;
 
+  /// Receives the stop picked in the search screen.
+  final ValueChanged<String> onSelected;
+
   const _SearchBar({
     required this.feed,
     required this.themeController,
     required this.settings,
+    required this.onSelected,
   });
+
+  Future<void> _openSearch(BuildContext context) async {
+    final stopId = await showStopSearch(
+      context,
+      feed: feed,
+      settings: settings,
+    );
+    if (stopId != null && stopId.isNotEmpty && context.mounted) {
+      onSelected(stopId);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -538,11 +810,7 @@ class _SearchBar extends StatelessWidget {
             Expanded(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => showStopSearch(
-                  context,
-                  feed: feed,
-                  settings: settings,
-                ),
+                onTap: () => _openSearch(context),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(

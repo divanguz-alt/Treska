@@ -33,11 +33,13 @@ class ZetRadius {
   static const double search = 28;
 }
 
-/// The three heights the bottom sheet snaps to (peek / half / full).
+/// The sheet heights the bottom sheet snaps to: collapsed, peek, half, full.
 class ZetSheetHeight {
   const ZetSheetHeight._();
 
-  static const double peek = 200;
+  /// Tall enough to show the 124 dp header (handle, modes, stop picker), the
+  /// legend and a couple of departures once the picker became a dropdown.
+  static const double peek = 280;
   static const double half = 520;
   static const double full = 860;
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter/widgets.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'location_service.dart';
@@ -177,6 +178,14 @@ class FeedController with WidgetsBindingObserver {
       return;
     }
 
+    if (message is WorkerShapeResult) {
+      final completer = _shapeRequests.remove(message.id);
+      if (completer != null && !completer.isCompleted) {
+        completer.complete(message);
+      }
+      return;
+    }
+
     // Isolate crash (onExit/onError share the inbox).
     if (message is List) {
       status.value = status.value.copyWith(
@@ -305,8 +314,43 @@ class FeedController with WidgetsBindingObserver {
     }
   }
 
-  void _restartWorker() {
-    _isolate?.kill(priority: Isolate.immediate);
+  /// Route geometry for one vehicle, as map points. Empty when the shape is
+  /// unknown; the caller then draws nothing rather than a made-up line.
+  final Map<int, Completer<WorkerShapeResult>> _shapeRequests = {};
+  int _shapeSeq = 0;
+
+  Future<List<LatLng>> shapeFor({
+    required String shapeId,
+    required String tripId,
+  }) async {
+    final worker = _worker;
+    if (worker == null || (shapeId.isEmpty && tripId.isEmpty)) {
+      return const [];
+    }
+    final id = ++_shapeSeq;
+    final completer = Completer<WorkerShapeResult>();
+    _shapeRequests[id] = completer;
+    worker.send(WorkerShape(shapeId: shapeId, tripId: tripId, id: id));
+    try {
+      final result = await completer.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          _shapeRequests.remove(id);
+          return WorkerShapeResult(id: id);
+        },
+      );
+      final points = <LatLng>[];
+      for (var i = 0; i + 1 < result.points.length; i += 2) {
+        points.add(LatLng(result.points[i], result.points[i + 1]));
+      }
+      return points;
+    } catch (_) {
+      _shapeRequests.remove(id);
+      return const [];
+    }
+  }
+
+  void _restartWorker() {    _isolate?.kill(priority: Isolate.immediate);
     _isolate = null;
     _worker = null;
     _inFlight = false;

@@ -15,8 +15,8 @@ import 'widgets/pulse.dart';
 /// The whole app is one screen: a full-bleed map with a bottom sheet over it.
 ///
 /// The sheet has the three heights from the design handoff — peek / half / full
-/// — and the map stays interactive behind it. Only two widgets rebuild on a
-/// feed update: the map's vehicle layer and the board list.
+/// — plus a fully collapsed state: dragging it down (or the chevron in its
+/// header) hands the screen back to the map, and a floating pill brings it back.
 class HomeScreen extends StatefulWidget {
   final FeedController feed;
   final ThemeController themeController;
@@ -40,8 +40,12 @@ class _HomeScreenState extends State<HomeScreen>
 
   int _mode = kModeTram;
 
+  /// Stop the board shows, owned here so the picker, the search screen and the
+  /// map all point at the same place.
+  String? _selectedStopId;
+
   /// Current sheet size as a fraction of the screen height, animated between
-  /// the three snap points.
+  /// the snap points.
   late final DraggableScrollableController _sheet;
 
   @override
@@ -66,16 +70,67 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _onRadius() => widget.feed.setRadius(widget.settings.radiusM);
 
+  /// Snap points for the current screen. The collapsed sheet is 0, so a
+  /// downward drag can hand the whole screen to the map.
+  ({double peek, double half, double full}) _fractions(double screen) {
+    final peek = (ZetSheetHeight.peek / screen).clamp(0.20, 0.38).toDouble();
+    final half =
+        (ZetSheetHeight.half / screen).clamp(peek + 0.05, 0.72).toDouble();
+    final full =
+        (ZetSheetHeight.full / screen).clamp(half + 0.05, 0.94).toDouble();
+    return (peek: peek, half: half, full: full);
+  }
+
+  double _halfFraction() {
+    final screen = MediaQuery.of(context).size.height;
+    return _fractions(screen).half;
+  }
+
+  /// Shared by the stop dropdown and the search screen: select a stop, switch
+  /// to the mode it actually serves, and make sure the sheet is open.
+  void _selectStop(String id) {
+    var mode = _mode;
+    for (final stop in widget.feed.stops.value) {
+      if (stop.id != id) continue;
+      if (!stop.serves(mode)) {
+        mode = mode == kModeTram ? kModeBus : kModeTram;
+      }
+      break;
+    }
+    setState(() {
+      _selectedStopId = id;
+      _mode = mode;
+    });
+    _expandSheet();
+  }
+
+  void _expandSheet() {
+    if (!_sheet.isAttached) return;
+    final target = _halfFraction();
+    if (_sheet.size < target - 0.01) {
+      _sheet.animateTo(
+        target,
+        duration: ZetMotion.sheet,
+        curve: ZetMotion.emphasized,
+      );
+    }
+  }
+
+  void _collapseSheet() {
+    if (!_sheet.isAttached) return;
+    _sheet.animateTo(
+      0,
+      duration: ZetMotion.sheet,
+      curve: ZetMotion.emphasized,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
     final media = MediaQuery.of(context);
     final screen = media.size.height;
-
-    // Convert the handoff's dp heights into fractions of this screen.
-    final peek = (ZetSheetHeight.peek / screen).clamp(0.18, 0.32);
-    final half = (ZetSheetHeight.half / screen).clamp(peek + 0.05, 0.72);
-    final full = (ZetSheetHeight.full / screen).clamp(half + 0.05, 0.94);
+    final fractions = _fractions(screen);
 
     return Scaffold(
       backgroundColor: colors.bg,
@@ -88,7 +143,8 @@ class _HomeScreenState extends State<HomeScreen>
             // Keep the FAB and zoom controls just above the sheet's top edge.
             final sheetPx = _sheet.isAttached
                 ? _sheet.size * screen
-                : half * screen;
+                : fractions.half * screen;
+            final hidden = _sheet.isAttached && _sheet.size < 0.02;
 
             return Stack(
               children: [
@@ -98,8 +154,11 @@ class _HomeScreenState extends State<HomeScreen>
                     themeController: widget.themeController,
                     settings: widget.settings,
                     mode: _mode,
-                    sheetFraction: _sheet.isAttached ? _sheet.size : half,
-                    bottomInsetPx: sheetPx,
+                    sheetFraction:
+                        _sheet.isAttached ? _sheet.size : fractions.half,
+                    bottomInsetPx: hidden ? 0 : sheetPx,
+                    selectedStopId: _selectedStopId,
+                    onStopSelected: _selectStop,
                   ),
                 ),
 
@@ -128,23 +187,89 @@ class _HomeScreenState extends State<HomeScreen>
 
                 _BottomSheetHost(
                   controller: _sheet,
-                  minChild: peek,
-                  initialChild: half,
-                  maxChild: full,
+                  minChild: 0,
+                  initialChild: fractions.half,
+                  maxChild: fractions.full,
+                  peek: fractions.peek,
+                  bottomInset: math.max(
+                    media.padding.bottom,
+                    media.viewPadding.bottom,
+                  ),
                   builder: (context, scrollController) => BoardPanel(
                     feed: widget.feed,
                     settings: widget.settings,
                     mode: _mode,
+                    selectedStopId: _selectedStopId,
                     scrollController: scrollController,
                     onModeChanged: (mode) {
                       if (mode == _mode) return;
                       setState(() => _mode = mode);
                     },
+                    onStopSelected: _selectStop,
+                    onCollapse: _collapseSheet,
                   ),
                 ),
+
+                if (hidden)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: math.max(
+                          media.padding.bottom,
+                          media.viewPadding.bottom,
+                        ) +
+                        ZetSpace.lg,
+                    child: Center(
+                      child: _ShowBoardPill(onTap: _expandSheet),
+                    ),
+                  ),
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// Floating restore control shown when the sheet is fully collapsed.
+class _ShowBoardPill extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const _ShowBoardPill({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return Material(
+      color: colors.primary,
+      elevation: 4,
+      borderRadius: BorderRadius.circular(ZetRadius.pill),
+      shadowColor: Colors.black.withValues(alpha: 0.3),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(ZetRadius.pill),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: ZetSpace.lg,
+            vertical: ZetSpace.md,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.keyboard_arrow_up,
+                  size: 20, color: colors.onPrimary),
+              const SizedBox(width: 6),
+              Text(
+                'Prikaži polaske',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: colors.onPrimary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -158,6 +283,13 @@ class _BottomSheetHost extends StatelessWidget {
   final double minChild;
   final double initialChild;
   final double maxChild;
+
+  /// Intermediate snap point (the "peek" height).
+  final double peek;
+
+  /// Android navigation inset, kept inside the sheet's own background.
+  final double bottomInset;
+
   final Widget Function(BuildContext, ScrollController) builder;
 
   const _BottomSheetHost({
@@ -165,76 +297,54 @@ class _BottomSheetHost extends StatelessWidget {
     required this.minChild,
     required this.initialChild,
     required this.maxChild,
+    required this.peek,
+    required this.bottomInset,
     required this.builder,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    // The sheet is anchored to the bottom of the screen, so anything it puts at
-    // its own bottom edge — here the board legend — would sit under the Android
-    // gesture handle / navigation area. Lift the whole sheet by that inset
-    // instead of padding individual children, so every snap height stays
-    // correct and no bottom row can be drawn over.
-    final mq = MediaQuery.of(context);
-    final bottomInset = math.max(mq.padding.bottom, mq.viewPadding.bottom);
 
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: DraggableScrollableSheet(
-        controller: controller,
-        minChildSize: minChild,
-        initialChildSize: initialChild,
-        maxChildSize: maxChild,
-        snap: true,
-        snapSizes: [minChild, initialChild, maxChild],
-        builder: (context, scrollController) {
-          return DecoratedBox(
-            decoration: BoxDecoration(
-              color: colors.bg,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(ZetRadius.sheet),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.18),
-                  blurRadius: 18,
-                  offset: const Offset(0, -4),
+    return DraggableScrollableSheet(
+      controller: controller,
+      minChildSize: minChild,
+      initialChildSize: initialChild,
+      maxChildSize: maxChild,
+      snap: true,
+      snapSizes: [minChild, peek, initialChild, maxChild],
+      builder: (context, scrollController) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final height = constraints.maxHeight;
+            return Container(
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: colors.bg,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(ZetRadius.sheet),
                 ),
-              ],
-            ),
-            child: Column(
-              children: [
-                const _SheetHandle(),
-                Expanded(child: builder(context, scrollController)),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-/// 32 × 4 drag handle in a 28 dp zone, as specified.
-class _SheetHandle extends StatelessWidget {
-  const _SheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.zet;
-    return SizedBox(
-      height: 28,
-      child: Center(
-        child: Container(
-          width: 32,
-          height: 4,
-          decoration: BoxDecoration(
-            color: colors.border,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-      ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    blurRadius: 18,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              // The inset is padding *inside* the decorated box, so the sheet's
+              // background reaches the bottom of the screen instead of letting
+              // the map show through a gap below it.
+              child: height < 90
+                  ? const SizedBox.expand()
+                  : Padding(
+                      padding: EdgeInsets.only(bottom: bottomInset),
+                      child: builder(context, scrollController),
+                    ),
+            );
+          },
+        );
+      },
     );
   }
 }

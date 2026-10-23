@@ -273,6 +273,135 @@ final _emptyPattern = TripPattern(
   departureSec: Int32List(0),
 );
 
+/// Reads one shape's coordinates from `shapes.txt`, streaming the entry so the
+/// whole file never becomes a String.
+///
+/// Called on demand when the user taps a vehicle badge, and cached by the
+/// worker: only the shapes actually looked at are ever held in memory.
+/// Resolves `trip_id → shape_id` from `trips.txt`, streaming the entry.
+///
+/// Vehicles in the REST feed carry a trip but no shape id, while the relay
+/// sends both. This lookup lets those vehicles draw the real track instead of a
+/// straight line between stops.
+Future<String> readTripShapeId(String zipPath, String tripId) async {
+  if (tripId.isEmpty) return '';
+  final zip = await ZipSource.open(zipPath);
+  try {
+    final entry = zip.entry('trips.txt');
+    if (entry == null) return '';
+
+    var headerSeen = false;
+    var iTrip = -1, iShape = -1;
+    var found = '';
+
+    final splitter = ByteLineSplitter((b, start, end) {
+      if (end <= start || found.isNotEmpty) return;
+      if (!headerSeen) {
+        headerSeen = true;
+        final header = csvRow(String.fromCharCodes(b, start, end));
+        iTrip = header.indexOf('trip_id');
+        iShape = header.indexOf('shape_id');
+        return;
+      }
+      if (iTrip < 0 || iShape < 0) return;
+
+      var field = 0;
+      var pos = start;
+      var tripStart = -1, tripEnd = -1;
+      var shapeStart = -1, shapeEnd = -1;
+      while (true) {
+        final comma = nextComma(b, pos, end);
+        if (field == iTrip) {
+          tripStart = pos;
+          tripEnd = comma;
+        } else if (field == iShape) {
+          shapeStart = pos;
+          shapeEnd = comma;
+        }
+        if (comma >= end) break;
+        pos = comma + 1;
+        field++;
+      }
+      if (tripStart < 0 || shapeStart < 0) return;
+      if (fieldString(b, tripStart, tripEnd) != tripId) return;
+      found = fieldString(b, shapeStart, shapeEnd);
+    });
+
+    await for (final chunk in zip.stream(entry)) {
+      splitter.add(chunk);
+      if (found.isNotEmpty) break;
+    }
+    splitter.finish();
+    return found;
+  } finally {
+    await zip.close();
+  }
+}
+
+Future<List<double>> readShapePoints(String zipPath, String shapeId) async {  if (shapeId.isEmpty) return const [];
+  final zip = await ZipSource.open(zipPath);
+  try {
+    final entry = zip.entry('shapes.txt');
+    if (entry == null) return const [];
+
+    var headerSeen = false;
+    var iShape = -1, iLat = -1, iLon = -1;
+    final points = <double>[];
+
+    final splitter = ByteLineSplitter((b, start, end) {
+      if (end <= start) return;
+      if (!headerSeen) {
+        headerSeen = true;
+        final header = csvRow(String.fromCharCodes(b, start, end));
+        iShape = header.indexOf('shape_id');
+        iLat = header.indexOf('shape_pt_lat');
+        iLon = header.indexOf('shape_pt_lon');
+        return;
+      }
+      if (iShape < 0 || iLat < 0 || iLon < 0) return;
+
+      var field = 0;
+      var pos = start;
+      var shapeStart = -1, shapeEnd = -1;
+      var latStart = -1, latEnd = -1;
+      var lonStart = -1, lonEnd = -1;
+      while (true) {
+        final comma = nextComma(b, pos, end);
+        if (field == iShape) {
+          shapeStart = pos;
+          shapeEnd = comma;
+        } else if (field == iLat) {
+          latStart = pos;
+          latEnd = comma;
+        } else if (field == iLon) {
+          lonStart = pos;
+          lonEnd = comma;
+        }
+        if (comma >= end) break;
+        pos = comma + 1;
+        field++;
+      }
+      if (shapeStart < 0 || latStart < 0 || lonStart < 0) return;
+      if (fieldString(b, shapeStart, shapeEnd) != shapeId) return;
+
+      final lat = parseByteDouble(b, latStart, latEnd);
+      final lon = parseByteDouble(b, lonStart, lonEnd);
+      if (lat == null || lon == null) return;
+      points
+        ..add(lat)
+        ..add(lon);
+    });
+
+    await for (final chunk in zip.stream(entry)) {
+      splitter.add(chunk);
+    }
+    splitter.finish();
+    return points;
+  } finally {
+    await zip.close();
+  }
+}
+
 bool _ascending(List<int> values) {
   for (var i = 1; i < values.length; i++) {
     if (values[i] < values[i - 1]) return false;

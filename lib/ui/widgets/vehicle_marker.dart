@@ -7,16 +7,15 @@ import '../../data/models.dart';
 
 /// Route badge drawn on the map.
 ///
-/// Direction is carried by the badge's *outline*: a capsule stretched along the
-/// bearing with a tapered tip on the leading edge, so the shape itself leans
-/// where the vehicle is going. Only the shape rotates — the route number stays
-/// upright, because a number rotated past 90° reads upside-down on a map and is
-/// genuinely unreadable (this was a real defect: the whole badge used to
-/// rotate together with its label).
+/// A circular token with the line number, plus a small detached arrow on its
+/// leading edge showing where the vehicle is heading. The arrow is painted
+/// inside the canvas at the bearing, so the badge itself never tilts: a round
+/// token reads the same from every angle and the digits stay upright.
 ///
-/// Trams stay a capsule and buses a squarer body, so the two modes are still
-/// distinguishable by silhouette and not only by colour. Three-digit lines get
-/// extra width so the number never shrinks.
+/// The previous version stretched the whole badge into a teardrop with a
+/// tapered nose. It was hard to read at a glance and looked like a map pin,
+/// not a vehicle. A disc plus a compass-like arrow states direction without
+/// deforming the number's container.
 ///
 /// Deliberately avoids `MaskFilter.blur` (ZET 1 used a blurred glow per vehicle,
 /// which forces a `saveLayer` per marker). A solid ring reads the same on a
@@ -24,7 +23,14 @@ import '../../data/models.dart';
 class VehicleMarkerWidget extends StatelessWidget {
   final Vehicle vehicle;
 
-  const VehicleMarkerWidget({super.key, required this.vehicle});
+  /// Draws a halo around the badge, used for the vehicle selected on the map.
+  final bool selected;
+
+  const VehicleMarkerWidget({
+    super.key,
+    required this.vehicle,
+    this.selected = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -38,21 +44,16 @@ class VehicleMarkerWidget extends StatelessWidget {
     // Dim them so they never read as live positions.
     final estimated = vehicle.estimated;
 
-    final wide = label.length > 2;
-    // Body is the badge's short axis; the tip adds length along the bearing.
-    final bodyW = isTram ? (wide ? 34.0 : 28.0) : (wide ? 32.0 : 24.0);
-    const bodyH = 20.0;
-    // Pointing only makes sense once ZET reports a bearing; a stationary or
-    // bearing-less vehicle gets a plain capsule/square instead of a random tip.
+    // Slightly larger disc for trams, whose two-digit numbers are the norm.
+    final radius = isTram ? 15.0 : 13.5;
+    // Arrow only when ZET actually reported a bearing; a stationary vehicle
+    // would otherwise point at a random street.
     final points = vehicle.isMoving;
-    final tip = points ? 7.0 : 0.0;
 
-    // Canvas holds the shape plus room for the tip at any rotation, so a
-    // north/south bearing never clips the nose against the marker bounds.
-    final canvas = math.max(bodyW, bodyH + tip) + 8;
-
-    final shapeW = bodyW + tip;
-    const shapeH = bodyH;
+    // The arrow reaches `radius + gap + length` from the centre; keep square
+    // bounds large enough that no bearing clips it.
+    final half = radius + 12;
+    final side = half * 2 + 2;
 
     return Tooltip(
       message: vehicle.headsign.isEmpty
@@ -60,142 +61,135 @@ class VehicleMarkerWidget extends StatelessWidget {
           : '$label → ${vehicle.headsign}',
       waitDuration: const Duration(milliseconds: 400),
       child: SizedBox(
-        width: canvas,
-        height: canvas,
-        child: Center(
-          child: SizedBox(
-            width: shapeW,
-            height: shapeH,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // Rotate the plain filled outline to the bearing. `bearing` is
-                // degrees clockwise from north while a canvas rotation is
-                // clockwise from east, hence the -90°.
-                if (points)
-                  Transform.rotate(
-                    angle: (vehicle.bearing - 90) * math.pi / 180,
-                    child: CustomPaint(
-                      size: Size(shapeW, shapeH),
-                      painter: _BadgePainter(
-                        color: estimated
-                            ? fill.withValues(alpha: 0.55)
-                            : fill,
-                        ring: estimated
-                            ? colors.bg.withValues(alpha: 0.5)
-                            : colors.bg,
-                        isTram: isTram,
-                        tip: tip,
-                      ),
-                    ),
-                  )
-                else
-                  CustomPaint(
-                    size: Size(shapeW, shapeH),
-                    painter: _BadgePainter(
-                      color: estimated ? fill.withValues(alpha: 0.55) : fill,
-                      ring: estimated
-                          ? colors.bg.withValues(alpha: 0.5)
-                          : colors.bg,
-                      isTram: isTram,
-                      tip: 0,
-                    ),
-                  ),
-                // The label is a sibling of the rotating shape, so it never
-                // turns: no bearing can render the number upside-down.
-                // Offset it back by half the tip so it sits in the body.
-                Padding(
-                  padding: EdgeInsets.only(right: tip),
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: ink.withValues(alpha: estimated ? 0.75 : 1),
-                      fontSize: wide ? 11 : 12,
-                      fontWeight: FontWeight.w700,
-                      height: 1,
-                    ),
-                  ),
-                ),
-              ],
+        width: side,
+        height: side,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CustomPaint(
+              size: Size(side, side),
+              painter: _BadgePainter(
+                fill: estimated ? fill.withValues(alpha: 0.62) : fill,
+                ring: colors.bg,
+                ink: ink,
+                radius: radius,
+                bearing: points ? vehicle.bearing : 0,
+                showArrow: points,
+                selected: selected,
+              ),
             ),
-          ),
+            // The label is a sibling of the painted shape, so nothing can
+            // rotate the digits: no bearing renders the number upside-down.
+            Padding(
+              padding: const EdgeInsets.only(bottom: 1),
+              child: Text(
+                label,
+                maxLines: 1,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: ink.withValues(alpha: estimated ? 0.8 : 1),
+                  fontSize: label.length > 2 ? 10.5 : 12,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Draws the badge body: a capsule (tram) or rounded square (bus) with an
-/// optional tip on the right edge, which is the direction of travel before the
-/// outline is rotated. The tip is deliberately shorter than the body is tall so
-/// it reads as a pointed nose rather than a spike.
+/// Draws the circular badge and, at the bearing, a detached arrow.
 class _BadgePainter extends CustomPainter {
-  final Color color;
+  final Color fill;
   final Color ring;
-  final bool isTram;
-  final double tip;
+  final Color ink;
+  final double radius;
+  final double bearing;
+  final bool showArrow;
+  final bool selected;
 
   const _BadgePainter({
-    required this.color,
+    required this.fill,
     required this.ring,
-    required this.isTram,
-    required this.tip,
+    required this.ink,
+    required this.radius,
+    required this.bearing,
+    required this.showArrow,
+    required this.selected,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final bodyW = size.width - tip;
-    final h = size.height;
-    final r = isTram ? h / 2 : 4.0;
+    final center = size.center(Offset.zero);
+    final disc = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: radius));
 
-    final path = Path();
-    path.moveTo(r, 0);
-    path.lineTo(bodyW - r, 0);
-    if (tip > 0) {
-      // Taper from the shoulders to a rounded point, so the nose is smooth
-      // rather than a triangle stuck onto the capsule.
-      path.quadraticBezierTo(bodyW, 0, bodyW + tip * 0.7, h * 0.35);
-      path.quadraticBezierTo(size.width, h * 0.5, size.width, h * 0.5);
-      path.quadraticBezierTo(size.width, h * 0.5, bodyW + tip * 0.7, h * 0.65);
-      path.quadraticBezierTo(bodyW, h, bodyW, h);
-    } else {
-      path.arcToPoint(
-        Offset(bodyW, r),
-        radius: Radius.circular(r),
-        clockwise: true,
+    canvas.drawShadow(disc, Colors.black.withValues(alpha: 0.32), 2, false);
+    canvas.drawPath(disc, Paint()..color = fill);
+    canvas.drawPath(
+      disc,
+      Paint()
+        ..color = ring
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+
+    if (selected) {
+      canvas.drawCircle(
+        center,
+        radius + 4.5,
+        Paint()
+          ..color = fill.withValues(alpha: 0.55)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5,
       );
     }
-    path.lineTo(bodyW - r, h);
-    path.arcToPoint(
-      Offset(0, h - r),
-      radius: Radius.circular(r),
-      clockwise: true,
-    );
-    path.lineTo(0, r);
-    path.arcToPoint(
-      Offset(r, 0),
-      radius: Radius.circular(r),
-      clockwise: true,
-    );
-    path.close();
+
+    if (showArrow) {
+      // `bearing` is degrees clockwise from north; the arrow is authored
+      // pointing east (+x), so −90° maps it to north.
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate((bearing - 90) * math.pi / 180);
+      _paintArrow(canvas);
+      canvas.restore();
+    }
+  }
+
+  /// A compact chevron with a concave back, floating just off the disc so it
+  /// reads as a direction cue rather than as part of the badge.
+  void _paintArrow(Canvas canvas) {
+    final base = radius + 3.5;
+    final tip = base + 7;
+    final path = Path()
+      ..moveTo(base, -4.2)
+      ..quadraticBezierTo(base + 3.6, -2.4, tip, 0)
+      ..quadraticBezierTo(base + 3.6, 2.4, base, 4.2)
+      ..quadraticBezierTo(base + 2.2, 0, base, -4.2)
+      ..close();
 
     canvas.drawShadow(path, Colors.black.withValues(alpha: 0.28), 1.5, false);
-    canvas.drawPath(path, Paint()..color = color);
+    canvas.drawPath(path, Paint()..color = fill);
     canvas.drawPath(
       path,
       Paint()
         ..color = ring
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.8,
+        ..strokeWidth = 1.6,
     );
   }
 
   @override
   bool shouldRepaint(_BadgePainter old) =>
-      old.color != color ||
+      old.fill != fill ||
       old.ring != ring ||
-      old.isTram != isTram ||
-      old.tip != tip;
+      old.ink != ink ||
+      old.radius != radius ||
+      old.bearing != bearing ||
+      old.showArrow != showArrow ||
+      old.selected != selected;
 }

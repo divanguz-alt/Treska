@@ -83,6 +83,29 @@ class WorkerTripStopsResult {
   });
 }
 
+class WorkerShape {
+  /// GTFS shape id from the streaming relay (empty when unknown).
+  final String shapeId;
+
+  /// Trip id, used as a fallback when the shape id is missing.
+  final String tripId;
+  final int id;
+
+  const WorkerShape({
+    required this.shapeId,
+    required this.tripId,
+    required this.id,
+  });
+}
+
+class WorkerShapeResult {
+  final int id;
+
+  /// Flat `[lat, lon, lat, lon, …]` array; empty when no geometry is known.
+  final List<double> points;
+  const WorkerShapeResult({required this.id, this.points = const []});
+}
+
 class WorkerHello {
   final SendPort port;
   const WorkerHello(this.port);
@@ -119,6 +142,8 @@ void zetWorkerMain(SendPort handshake) {
   StaticData? staticData;
   FeedEngine? engine;
   String zipPath = '';
+  final shapeCache = <String, List<double>>{};
+  final tripShapeCache = <String, String>{};
   DateTime? loadedAt;
   String staticWarning = '';
   var staticLoading = false;
@@ -135,6 +160,56 @@ void zetWorkerMain(SendPort handshake) {
   RtSocket? socket;
 
   void sendStatic(WorkerStaticReady result) => handshake.send(result);
+
+  /// Resolves route geometry for a tapped vehicle.
+  ///
+  /// A shape is read from the cached ZIP only once and then kept in a small
+  /// LRU-ish cache; vehicles whose relay payload lacked a shape id fall back to
+  /// the trip's stop sequence.
+  Future<void> sendShape(WorkerShape message) async {
+    var points = const <double>[];
+    var shapeId = message.shapeId;
+
+    // REST vehicles have a trip id but no shape id; resolve it from trips.txt.
+    if (shapeId.isEmpty && message.tripId.isNotEmpty && zipPath.isNotEmpty) {
+      final cachedTrip = tripShapeCache[message.tripId];
+      if (cachedTrip != null) {
+        shapeId = cachedTrip;
+      } else {
+        try {
+          final resolved = await readTripShapeId(zipPath, message.tripId);
+          if (resolved.isNotEmpty) tripShapeCache[message.tripId] = resolved;
+          shapeId = resolved;
+        } catch (_) {
+          // Fall through to the stop-sequence outline.
+        }
+      }
+    }
+
+    if (shapeId.isNotEmpty && zipPath.isNotEmpty) {
+      final cached = shapeCache[shapeId];
+      if (cached != null) {
+        points = cached;
+      } else {
+        try {
+          final parsed = await readShapePoints(zipPath, shapeId);
+          if (parsed.isNotEmpty) {
+            if (shapeCache.length >= 24) {
+              shapeCache.remove(shapeCache.keys.first);
+            }
+            shapeCache[shapeId] = parsed;
+          }
+          points = parsed;
+        } catch (_) {
+          // A corrupt shape must not break the rest of the feed.
+        }
+      }
+    }
+    if (points.isEmpty && message.tripId.isNotEmpty) {
+      points = engine?.shapeForTrip(message.tripId) ?? const [];
+    }
+    handshake.send(WorkerShapeResult(id: message.id, points: points));
+  }
   
   Future<void> downloadStatic() async {
     final tmp = File('$zipPath.tmp');
@@ -397,8 +472,12 @@ void zetWorkerMain(SendPort handshake) {
         stops: result?.stops ?? const [],
         id: message.id,
       ));
+    } else if (message is WorkerShape) {
+      sendShape(message);
     } else if (message is WorkerInvalidateStatic) {
       if (zipPath.isEmpty) return;
+      shapeCache.clear();
+      tripShapeCache.clear();
       try {
         final file = File(zipPath);
         if (file.existsSync()) file.deleteSync();

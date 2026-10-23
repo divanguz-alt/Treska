@@ -140,6 +140,15 @@ class Vehicle {
   /// GPS report ZET published.
   final bool estimated;
 
+  /// GTFS trip id, when the feed identified the trip. Used to look up the
+  /// vehicle's route geometry when the user taps its badge.
+  final String tripId;
+
+  /// GTFS shape id of the trip. The streaming relay sends this with every
+  /// vehicle, so tapping a badge can draw the exact road/track the vehicle
+  /// follows instead of a straight line between stops.
+  final String shapeId;
+
   const Vehicle({
     required this.routeShortName,
     required this.routeType,
@@ -149,6 +158,8 @@ class Vehicle {
     required this.headsign,
     this.positionTimestamp = 0,
     this.estimated = false,
+    this.tripId = '',
+    this.shapeId = '',
   });
 
   bool get isTram => routeType == kRouteTypeTram;
@@ -169,6 +180,8 @@ class Vehicle {
       headsign: headsign ?? this.headsign,
       positionTimestamp: positionTimestamp,
       estimated: estimated,
+      tripId: tripId,
+      shapeId: shapeId,
     );
   }
 }

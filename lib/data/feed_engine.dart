@@ -173,6 +173,8 @@ class FeedEngine {
             bearing: vp.position.bearing,
             headsign: _headsignFor(trip),
             positionTimestamp: vp.timestamp,
+            tripId: tid,
+            shapeId: entity.tripUpdate?.shapeId ?? '',
           ));
           if (tid.isNotEmpty) pendingKeys.add(tid);
         }
@@ -633,6 +635,26 @@ class FeedEngine {
       }
     }
     return lo;
+  }
+
+  /// Route geometry for a trip, as a flat `[lat, lon, lat, lon, …]` array.
+  ///
+  /// Used when a vehicle badge is tapped and the relay did not provide a
+  /// `shapeId`: the trip's stop sequence is still a faithful-enough outline for
+  /// a route that mostly runs along the same street.
+  List<double> shapeForTrip(String tripId) {
+    final trip = data.tripIdx[tripId];
+    if (trip == null) return const [];
+    final pattern = data.patterns[trip];
+    final out = <double>[];
+    for (final si in pattern.stopIdx) {
+      if (si < 0 || si >= data.stops.length) continue;
+      final stop = data.stops[si];
+      out
+        ..add(stop.lat)
+        ..add(stop.lon);
+    }
+    return out;
   }
 
   /// Ordered stop timeline of the next trip that (a) serves [stopId], (b) has

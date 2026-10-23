@@ -10,18 +10,27 @@ import 'diagnostics_sheet.dart';
 import 'widgets/stop_card.dart';
 import 'widgets/timer_builder.dart';
 
-/// The sheet's content: nearby stops, the selected stop's grouped departures and
-/// the legend.
+/// The sheet's content: the selected stop's board, a stop picker and the
+/// legend.
 ///
-/// Only the selected stop's board is built, with the other nearby stops offered
-/// as suggestion chips — that keeps a busy tram stop from rendering five full
-/// boards at once while still making the neighbours one tap away.
-class BoardPanel extends StatefulWidget {
+/// Everything except the legend lives in one [CustomScrollView], including the
+/// handle and the filters. That is what makes the sheet draggable: a
+/// [DraggableScrollableSheet] resizes itself through its scroll controller, so a
+/// fixed header would swallow every drag and leave the sheet feeling pinned.
+class BoardPanel extends StatelessWidget {
   final FeedController feed;
   final SettingsController settings;
   final int mode;
+
+  /// Selected stop, owned by the screen so search and the board agree.
+  final String? selectedStopId;
+
   final ScrollController? scrollController;
   final ValueChanged<int> onModeChanged;
+  final ValueChanged<String> onStopSelected;
+
+  /// Hides the sheet, leaving the map full-screen.
+  final VoidCallback onCollapse;
 
   const BoardPanel({
     super.key,
@@ -29,72 +38,95 @@ class BoardPanel extends StatefulWidget {
     required this.settings,
     required this.mode,
     required this.onModeChanged,
+    required this.onStopSelected,
+    required this.onCollapse,
+    this.selectedStopId,
     this.scrollController,
   });
 
-  @override
-  State<BoardPanel> createState() => _BoardPanelState();
-}
-
-class _BoardPanelState extends State<BoardPanel> {
-  /// Stop the board is focused on; null means "the nearest one".
-  String? _selectedStopId;
+  /// Handle + mode row + stop picker. Also the pinned-header extent.
+  static const double headerHeight = 124;
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([widget.feed.snapshot, widget.feed.status]),
+      listenable: Listenable.merge([feed.snapshot, feed.status]),
       builder: (context, _) {
-        final snapshot = widget.feed.snapshot.value;
+        final snapshot = feed.snapshot.value;
         final loading = snapshot == null;
 
-        final stops = loading
+        final nearby = loading
             ? const <NearbyStop>[]
-            : (widget.mode == kModeTram
-                ? snapshot.tramStops
-                : snapshot.busStops);
+            : (mode == kModeTram ? snapshot.tramStops : snapshot.busStops);
 
         // Fall back to the nearest stop whenever the selection is gone.
         NearbyStop? selected;
-        for (final s in stops) {
-          if (s.stop.id == _selectedStopId) {
+        for (final s in nearby) {
+          if (s.stop.id == selectedStopId) {
             selected = s;
             break;
           }
         }
-        selected ??= stops.isNotEmpty ? stops.first : null;
+        selected ??= nearby.isNotEmpty ? nearby.first : null;
+
+        // A stop picked in search can sit outside the nearby radius. Show its
+        // header and an honest "no departures in range" body rather than
+        // silently snapping back to the nearest stop.
+        NearbyStop? outside;
+        if (selected == null && selectedStopId != null) {
+          for (final s in feed.stops.value) {
+            if (s.id != selectedStopId) continue;
+            final pos = feed.position.value;
+            outside = NearbyStop(
+              stop: s,
+              distanceM: pos.gps
+                  ? haversineM(pos.lat, pos.lon, s.lat, s.lon)
+                  : 0,
+              arrivals: const [],
+            );
+            break;
+          }
+        }
+        final active = selected ?? outside;
+
+        // The picker lists the nearby stops plus an out-of-range selection so
+        // its label always matches the board below.
+        final picker = <NearbyStop>[...nearby];
+        if (outside != null) picker.insert(0, outside);
+
+        final header = _BoardHeader(
+          mode: mode,
+          tramCount: _lineCount(snapshot?.tramStops),
+          busCount: _lineCount(snapshot?.busStops),
+          stops: picker,
+          selectedStopId: active?.stop.id,
+          onModeChanged: onModeChanged,
+          onStopSelected: onStopSelected,
+          onCollapse: onCollapse,
+        );
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _FilterChips(
-              mode: widget.mode,
-              tramCount: _lineCount(snapshot?.tramStops),
-              busCount: _lineCount(snapshot?.busStops),
-              stops: stops,
-              selectedStopId: selected?.stop.id,
-              radiusM: widget.settings.radiusM,
-              onModeChanged: widget.onModeChanged,
-              onStopChanged: (id) => setState(() => _selectedStopId = id),
-            ),
             Expanded(
-              child: loading
-                  ? _LoadingState(feed: widget.feed)
-                  : selected == null
-                      ? _EmptyState(
-                          feed: widget.feed,
-                          mode: widget.mode,
-                          error: snapshot.error,
-                          radiusM: widget.settings.radiusM,
-                        )
-                      : _BoardBody(
-                          feed: widget.feed,
-                          stop: selected,
-                          scrollController: widget.scrollController,
-                          error: snapshot.error,
-                        ),
+              child: RefreshIndicator(
+                onRefresh: feed.refreshNow,
+                color: context.zet.primary,
+                backgroundColor: context.zet.bg,
+                child: _BoardScroll(
+                  feed: feed,
+                  settings: settings,
+                  scrollController: scrollController,
+                  header: header,
+                  stop: active,
+                  loading: loading,
+                  error: snapshot?.error ?? '',
+                  mode: mode,
+                  radiusM: settings.radiusM,
+                ),
+              ),
             ),
-            if (!loading && selected != null) const _BoardLegend(),
+            if (!loading && active != null) const _BoardLegend(),
           ],
         );
       },
@@ -113,73 +145,218 @@ class _BoardPanelState extends State<BoardPanel> {
   }
 }
 
-/// M3 filter chips for the two modes plus the neighbouring stops.
-class _FilterChips extends StatelessWidget {
+/// One scroll view for header, stop header and departures, so the sheet can be
+/// dragged from anywhere in the panel and the filters stay pinned.
+class _BoardScroll extends StatelessWidget {
+  final FeedController feed;
+  final SettingsController settings;
+  final ScrollController? scrollController;
+  final Widget header;
+  final NearbyStop? stop;
+  final bool loading;
+  final String error;
+  final int mode;
+  final double radiusM;
+
+  const _BoardScroll({
+    required this.feed,
+    required this.settings,
+    required this.scrollController,
+    required this.header,
+    required this.stop,
+    required this.loading,
+    required this.error,
+    required this.mode,
+    required this.radiusM,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // The ETA counts down every second between refreshes, so re-render the list
+    // on a 1 s tick while it is visible.
+    return TimerBuilder(
+      interval: const Duration(seconds: 1),
+      builder: (context) {
+        final now = DateTime.now();
+        return CustomScrollView(
+          controller: scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _HeaderDelegate(
+                extent: BoardPanel.headerHeight,
+                child: header,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(height: error.isNotEmpty ? ZetSpace.sm : 0),
+            ),
+            if (error.isNotEmpty)
+              SliverToBoxAdapter(child: _ErrorBanner(feed: feed, message: error)),
+            if (loading)
+              SliverToBoxAdapter(child: _LoadingBody(feed: feed))
+            else if (stop == null)
+              SliverToBoxAdapter(
+                child: _EmptyBody(mode: mode, radiusM: radiusM),
+              )
+            else ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: ZetSpace.sm),
+                  child: StopHeader(stop: stop!),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: StopBoard(
+                  stop: stop!,
+                  now: now,
+                  onOpen: (group) => showArrivalDetails(
+                    context,
+                    feed: feed,
+                    stop: stop!,
+                    group: group,
+                  ),
+                ),
+              ),
+            ],
+            const SliverToBoxAdapter(child: SizedBox(height: ZetSpace.sheet)),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _HeaderDelegate extends SliverPersistentHeaderDelegate {
+  final double extent;
+  final Widget child;
+
+  const _HeaderDelegate({required this.extent, required this.child});
+
+  @override
+  double get minExtent => extent;
+
+  @override
+  double get maxExtent => extent;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return SizedBox(height: extent, child: child);
+  }
+
+  @override
+  bool shouldRebuild(covariant _HeaderDelegate old) =>
+      old.extent != extent || old.child != child;
+}
+
+/// Drag handle, the two mode chips and the stop picker.
+class _BoardHeader extends StatelessWidget {
   final int mode;
   final int tramCount;
   final int busCount;
   final List<NearbyStop> stops;
   final String? selectedStopId;
-  final double radiusM;
   final ValueChanged<int> onModeChanged;
-  final ValueChanged<String> onStopChanged;
+  final ValueChanged<String> onStopSelected;
+  final VoidCallback onCollapse;
 
-  const _FilterChips({
+  const _BoardHeader({
     required this.mode,
     required this.tramCount,
     required this.busCount,
     required this.stops,
     required this.selectedStopId,
-    required this.radiusM,
     required this.onModeChanged,
-    required this.onStopChanged,
+    required this.onStopSelected,
+    required this.onCollapse,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    final others =
-        stops.where((s) => s.stop.id != selectedStopId).take(6).toList();
-
-    return SizedBox(
-      height: 56,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(
-          horizontal: ZetSpace.sheet,
-          vertical: ZetSpace.md,
-        ),
+    return ColoredBox(
+      color: colors.bg,
+      child: Column(
         children: [
-          _ModeChip(
-            label: 'Tramvaji $tramCount',
-            icon: Icons.tram,
-            selected: mode == kModeTram,
-            color: colors.tram,
-            onTap: () => onModeChanged(kModeTram),
-          ),
-          const SizedBox(width: ZetSpace.sm),
-          _ModeChip(
-            label: 'Autobusi $busCount',
-            icon: Icons.directions_bus,
-            selected: mode == kModeBus,
-            color: colors.bus,
-            onTap: () => onModeChanged(kModeBus),
-          ),
-          if (others.isNotEmpty) ...[
-            const SizedBox(width: ZetSpace.md),
-            Center(
-              child: Container(width: 1, height: 24, color: colors.borderStrong),
-            ),
-            const SizedBox(width: ZetSpace.md),
-            for (final s in others) ...[
-              _StopChip(
-                stop: s,
-                onTap: () => onStopChanged(s.stop.id),
+          const _SheetHandle(),
+          SizedBox(
+            height: 44,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: ZetSpace.sheet),
+              child: Row(
+                children: [
+                  _ModeChip(
+                    label: 'Tramvaji $tramCount',
+                    icon: Icons.tram,
+                    selected: mode == kModeTram,
+                    color: colors.tram,
+                    onTap: () => onModeChanged(kModeTram),
+                  ),
+                  const SizedBox(width: ZetSpace.sm),
+                  _ModeChip(
+                    label: 'Autobusi $busCount',
+                    icon: Icons.directions_bus,
+                    selected: mode == kModeBus,
+                    color: colors.bus,
+                    onTap: () => onModeChanged(kModeBus),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Skloni popis',
+                    onPressed: onCollapse,
+                    iconSize: 22,
+                    color: colors.textDim,
+                    icon: const Icon(Icons.keyboard_arrow_down),
+                  ),
+                ],
               ),
-              const SizedBox(width: ZetSpace.sm),
-            ],
-          ],
+            ),
+          ),
+          SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                ZetSpace.sheet,
+                0,
+                ZetSpace.sheet,
+                ZetSpace.sm,
+              ),
+              child: _StopDropdown(
+                stops: stops,
+                selectedStopId: selectedStopId,
+                onChanged: onStopSelected,
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// 32 × 4 drag handle in a 24 dp zone.
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return SizedBox(
+      height: 24,
+      child: Center(
+        child: Container(
+          width: 32,
+          height: 4,
+          decoration: BoxDecoration(
+            color: colors.border,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
       ),
     );
   }
@@ -244,49 +421,108 @@ class _ModeChip extends StatelessWidget {
   }
 }
 
-class _StopChip extends StatelessWidget {
-  final NearbyStop stop;
-  final VoidCallback onTap;
+/// Full-width stop picker. A dropdown is obvious at a glance and needs no
+/// horizontal scrolling, unlike the old row of chips that ran off-screen.
+class _StopDropdown extends StatelessWidget {
+  final List<NearbyStop> stops;
+  final String? selectedStopId;
+  final ValueChanged<String> onChanged;
 
-  const _StopChip({required this.stop, required this.onTap});
+  const _StopDropdown({
+    required this.stops,
+    required this.selectedStopId,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    return Material(
+
+    NearbyStop? selected;
+    for (final s in stops) {
+      if (s.stop.id == selectedStopId) {
+        selected = s;
+        break;
+      }
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: 'Odaberi stajalište',
+      onSelected: onChanged,
       color: colors.panel,
-      borderRadius: BorderRadius.circular(ZetRadius.chip),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ZetRadius.chip),
-        child: Container(
-          height: 32,
-          padding: const EdgeInsets.symmetric(horizontal: ZetSpace.md),
-          decoration: BoxDecoration(
-            border: Border.all(color: colors.border),
-            borderRadius: BorderRadius.circular(ZetRadius.chip),
+      elevation: 6,
+      constraints: const BoxConstraints(minWidth: 280, maxWidth: 380),
+      itemBuilder: (context) => [
+        for (final s in stops)
+          PopupMenuItem<String>(
+            value: s.stop.id,
+            child: Row(
+              children: [
+                Icon(
+                  s.stop.id == selectedStopId
+                      ? Icons.radio_button_checked
+                      : Icons.location_on_outlined,
+                  size: 18,
+                  color: s.stop.id == selectedStopId
+                      ? colors.primary
+                      : colors.textDim,
+                ),
+                const SizedBox(width: ZetSpace.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        s.stop.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 14, color: colors.text),
+                      ),
+                      Text(
+                        '${distanceLabel(s.distanceM)} · '
+                        '${(s.distanceM / 80).round().clamp(1, 99)} min hoda',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colors.textDim,
+                          fontFeatures: kTabular,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.location_on_outlined,
-                  size: 15, color: colors.textDim),
-              const SizedBox(width: 5),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 120),
-                child: Text(
-                  stop.stop.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: colors.text,
-                    ),
+      ],
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: ZetSpace.md),
+        decoration: BoxDecoration(
+          color: colors.panel,
+          border: Border.all(color: colors.border),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.location_on_outlined, size: 18, color: colors.primary),
+            const SizedBox(width: ZetSpace.sm),
+            Expanded(
+              child: Text(
+                selected?.stop.name ?? 'Odaberi stajalište',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: colors.text,
                 ),
               ),
-              const SizedBox(width: 6),
+            ),
+            if (selected != null) ...[
+              const SizedBox(width: ZetSpace.sm),
               Text(
-                distanceLabel(stop.distanceM),
+                distanceLabel(selected.distanceM),
                 style: TextStyle(
                   fontSize: 13,
                   color: colors.textDim,
@@ -294,66 +530,11 @@ class _StopChip extends StatelessWidget {
                 ),
               ),
             ],
-          ),
+            const SizedBox(width: 2),
+            Icon(Icons.expand_more, size: 22, color: colors.textDim),
+          ],
         ),
       ),
-    );
-  }
-}
-
-/// Scrolling content: stop header followed by the grouped board.
-class _BoardBody extends StatelessWidget {
-  final FeedController feed;
-  final NearbyStop stop;
-  final ScrollController? scrollController;
-  final String error;
-
-  const _BoardBody({
-    required this.feed,
-    required this.stop,
-    required this.scrollController,
-    required this.error,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.zet;
-
-    // The ETA counts down every second between refreshes, so re-render the list
-    // on a 1 s tick while it is visible.
-    return TimerBuilder(
-      interval: const Duration(seconds: 1),
-      builder: (context) {
-        final now = DateTime.now();
-        return RefreshIndicator(
-          onRefresh: feed.refreshNow,
-          color: colors.primary,
-          backgroundColor: colors.bg,
-          child: ListView(
-            controller: scrollController,
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: ZetSpace.sheet),
-            children: [
-              if (error.isNotEmpty)
-                _ErrorBanner(feed: feed, message: error),
-              Padding(
-                padding: const EdgeInsets.only(top: ZetSpace.sm),
-                child: StopHeader(stop: stop),
-              ),
-              StopBoard(
-                stop: stop,
-                now: now,
-                onOpen: (group) => showArrivalDetails(
-                  context,
-                  feed: feed,
-                  stop: stop,
-                  group: group,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }
@@ -370,9 +551,8 @@ class _BoardLegend extends StatelessWidget {
       color: colors.textDim,
     );
 
-    // The bottom safe area is handled by the sheet host, which lifts the whole
-    // sheet above the Android gesture handle, so the legend only needs its own
-    // content height here.
+    // The bottom safe area is handled by the sheet host, which keeps this row
+    // above the Android gesture handle.
     return Container(
       height: 34,
       padding: const EdgeInsets.symmetric(horizontal: ZetSpace.sheet),
@@ -494,34 +674,21 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  final FeedController feed;
+class _EmptyBody extends StatelessWidget {
   final int mode;
-  final String error;
   final double radiusM;
 
-  const _EmptyState({
-    required this.feed,
-    required this.mode,
-    required this.error,
-    required this.radiusM,
-  });
+  const _EmptyBody({required this.mode, required this.radiusM});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
     final radius = radiusM.round();
-    return RefreshIndicator(
-      onRefresh: feed.refreshNow,
-      color: colors.primary,
-      backgroundColor: colors.bg,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(
-            ZetSpace.lg, ZetSpace.xl, ZetSpace.lg, ZetSpace.lg),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          ZetSpace.lg, ZetSpace.xl, ZetSpace.lg, ZetSpace.lg),
+      child: Column(
         children: [
-          if (error.isNotEmpty) _ErrorBanner(feed: feed, message: error),
-          const SizedBox(height: ZetSpace.xl),
           Icon(Icons.filter_alt_off_outlined, size: 32, color: colors.textDim),
           const SizedBox(height: ZetSpace.md),
           Text(
@@ -543,7 +710,7 @@ class _EmptyState extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               color: colors.textDim,
-              ),
+            ),
           ),
         ],
       ),
@@ -551,63 +718,64 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _LoadingState extends StatelessWidget {
+class _LoadingBody extends StatelessWidget {
   final FeedController feed;
-  const _LoadingState({required this.feed});
+  const _LoadingBody({required this.feed});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
     final status = feed.status.value;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: ZetSpace.sheet),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (status.staticError.isEmpty) ...[
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              const SizedBox(height: ZetSpace.row),
-            ] else
-              Icon(Icons.error_outline, size: 32, color: colors.danger),
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: ZetSpace.sheet,
+        vertical: ZetSpace.xxl,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (status.staticError.isEmpty) ...[
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(height: ZetSpace.row),
+          ] else
+            Icon(Icons.error_outline, size: 32, color: colors.danger),
+          Text(
+            status.staticError.isEmpty
+                ? (status.loading.isEmpty
+                    ? 'Učitavam raspored…'
+                    : status.loading)
+                : status.staticError,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: status.staticError.isEmpty
+                  ? colors.textDim
+                  : colors.danger,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (status.staticError.isEmpty)
             Text(
-              status.staticError.isEmpty
-                  ? (status.loading.isEmpty
-                      ? 'Učitavam raspored…'
-                      : status.loading)
-                  : status.staticError,
+              'Prvo pokretanje preuzima ~19 MB rasporeda.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 14,
-                color: status.staticError.isEmpty
-                    ? colors.textDim
-                    : colors.danger,
-                height: 1.5,
+                fontSize: 13,
+                color: colors.textDim,
               ),
             ),
-            const SizedBox(height: 6),
-            if (status.staticError.isEmpty)
-              Text(
-                'Prvo pokretanje preuzima ~19 MB rasporeda.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: colors.textDim,
-                  ),
-              ),
-            const SizedBox(height: ZetSpace.lg),
-            if (status.staticError.isNotEmpty)
-              FilledButton(
-                onPressed: feed.retryStatic,
-                child: const Text('Pokušaj ponovno'),
-              ),
-          ],
-        ),
+          const SizedBox(height: ZetSpace.lg),
+          if (status.staticError.isNotEmpty)
+            FilledButton(
+              onPressed: feed.retryStatic,
+              child: const Text('Pokušaj ponovno'),
+            ),
+        ],
       ),
     );
   }

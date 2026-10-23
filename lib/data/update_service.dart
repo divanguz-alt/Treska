@@ -136,6 +136,30 @@ class UpdateService {
   /// authoritative; the tag/name is only a fallback for old releases without a
   /// numeric tag.
   static bool isNewer(ReleaseInfo release, int currentCode, String currentName) {
+    final rHasBuild = release.tag.contains('+');
+    final cHasBuild = currentName.contains('+');
+
+    if (rHasBuild && cHasBuild) {
+      return release.versionCode > currentCode;
+    }
+
+    final rSem = _semverCode(release.tag);
+    final cSem = _semverCode(currentName);
+
+    if (rSem != cSem) {
+      return rSem > cSem;
+    }
+
+    // Same semver: if the online release has no explicit build number,
+    // it refers to the same base release — never treat it as newer than
+    // a locally built/installed version that already has a higher build.
+    if (!rHasBuild && cHasBuild) {
+      return false;
+    }
+    if (rHasBuild && !cHasBuild) {
+      return release.versionCode > currentCode;
+    }
+
     if (release.versionCode >= 0 && currentCode >= 0) {
       return release.versionCode > currentCode;
     }
@@ -174,9 +198,25 @@ class UpdateService {
     );
   }
 
-  /// `v2.1.0` / `2.1.0+5` / `2.1.0` → 2, 1, 0 (major*10000 + minor*100 + patch);
-  /// an explicit `+N` build number wins. Returns -1 when nothing numeric exists.
+  /// `v2.1.0` / `2.1.0+5` / `2.1.0` → 2, 1, 0 (major*10000 + minor*100 + patch).
+  /// An explicit `+N` build number wins. Returns -1 when nothing numeric exists.
   static int debugCodeFromTag(String tag) => _codeFromTag(tag);
+
+  static int _semverCode(String tag) {
+    final cleaned = tag.replaceFirst(RegExp(r'^[vV]'), '');
+    final plus = cleaned.split('+');
+    final core = plus.first.split('.');
+    if (core.isEmpty) return -1;
+    final major = int.tryParse(core[0].replaceAll(RegExp(r'[^0-9]'), ''));
+    if (major == null) return -1;
+    final minor = core.length > 1
+        ? int.tryParse(core[1].replaceAll(RegExp(r'[^0-9]'), '')) ?? 0
+        : 0;
+    final patch = core.length > 2
+        ? int.tryParse(core[2].replaceAll(RegExp(r'[^0-9]'), '')) ?? 0
+        : 0;
+    return major * 10000 + minor * 100 + patch;
+  }
 
   static int _codeFromTag(String tag) {
     final cleaned = tag.replaceFirst(RegExp(r'^[vV]'), '');

@@ -14,13 +14,13 @@ import '../settings_controller.dart';
 ///
 /// Named `showStopSearch` rather than `showSearch` so it never collides with
 /// Material's own `showSearch` when both are imported.
-Future<void> showStopSearch(
+Future<String?> showStopSearch(
   BuildContext context, {
   required FeedController feed,
   required SettingsController settings,
 }) {
   return Navigator.of(context).push(
-    PageRouteBuilder<void>(
+    PageRouteBuilder<String>(
       opaque: true,
       transitionDuration: ZetMotion.quick,
       transitionsBuilder: (context, animation, _, child) {
@@ -84,6 +84,7 @@ class _SearchScreenState extends State<_SearchScreen> {
                 controller: _query,
                 focus: _focus,
                 onChanged: (v) => setState(() => _text = v),
+                onSubmitted: (_) => _selectFirst(),
                 onBack: () => Navigator.of(context).pop(),
               ),
             ),
@@ -148,8 +149,15 @@ class _SearchScreenState extends State<_SearchScreen> {
     );
   }
 
-  List<_SearchResult> _results() {
-    final pos = widget.feed.position.value;
+  /// Picking the keyboard's search key takes the first hit, so typing a line
+  /// number and hitting enter is a one-step action.
+  void _selectFirst() {
+    final results = _results();
+    if (results.isEmpty) return;
+    Navigator.of(context).pop(results.first.stop.id);
+  }
+
+  List<_SearchResult> _results() {    final pos = widget.feed.position.value;
     final all = widget.feed.stops.value;
     final snapshot = widget.feed.snapshot.value;
     final q = _normalize(_text.trim());
@@ -205,12 +213,14 @@ class _SearchField extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focus;
   final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmitted;
   final VoidCallback onBack;
 
   const _SearchField({
     required this.controller,
     required this.focus,
     required this.onChanged,
+    required this.onSubmitted,
     required this.onBack,
   });
 
@@ -237,6 +247,7 @@ class _SearchField extends StatelessWidget {
                 focusNode: focus,
                 autofocus: true,
                 onChanged: onChanged,
+                onSubmitted: onSubmitted,
                 textInputAction: TextInputAction.search,
                 style: TextStyle(
                   fontSize: 16,
