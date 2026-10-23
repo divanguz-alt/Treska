@@ -202,8 +202,11 @@ class _MapPanelState extends State<MapPanel> {
 
   /// Moves [point] south by half the sheet height, so it renders at the centre
   /// of the visible map area rather than the centre of the widget.
-  LatLng _shiftForSheet(LatLng point, double zoom) =>
-      MapPanel.shiftForSheet(point, zoom, widget.bottomInsetPx);
+  LatLng _shiftForSheet(LatLng point, double zoom) {
+    // Use the actual bottom inset from widget - when sheet is collapsed this is 0
+    final hidden = widget.bottomInsetPx;
+    return MapPanel.shiftForSheet(point, zoom, hidden);
+  }
 
   void _zoom(double delta) {
     if (!_mapReady) return;

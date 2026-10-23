@@ -116,12 +116,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _collapseSheet() {
     if (!_sheet.isAttached) return;
-    setState(() {});
     try {
       _sheet.animateTo(
         0,
-        duration: ZetMotion.sheet,
-        curve: ZetMotion.emphasized,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
       );
     } catch (_) {}
   }
@@ -144,7 +143,8 @@ class _HomeScreenState extends State<HomeScreen>
             // Keep the FAB and zoom controls just above the sheet's top edge.
             final sheetSize = _sheet.isAttached ? _sheet.size : fractions.half;
             final sheetPx = sheetSize * screen;
-            final hidden = sheetSize < 0.01;
+            // Show restore pill only when effectively collapsed
+            final hidden = sheetSize <= 0.02;
 
             return Stack(
               children: [
@@ -154,8 +154,7 @@ class _HomeScreenState extends State<HomeScreen>
                     themeController: widget.themeController,
                     settings: widget.settings,
                     mode: _mode,
-                    sheetFraction:
-                        _sheet.isAttached ? _sheet.size : fractions.half,
+                    sheetFraction: hidden ? 0 : sheetSize,
                     bottomInsetPx: hidden ? 0 : sheetPx,
                     selectedStopId: _selectedStopId,
                     onStopSelected: _selectStop,
@@ -238,13 +237,12 @@ class _HomeScreenState extends State<HomeScreen>
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    top: 0,
+                    top: MediaQuery.of(context).padding.top + 80,
                     child: IgnorePointer(
                       ignoring: true,
                       child: GestureDetector(
                         behavior: HitTestBehavior.translucent,
                         onTap: () {
-                          setState(() {});
                           if (_sheet.isAttached) {
                             try {
                               _sheet.animateTo(
