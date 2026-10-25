@@ -97,6 +97,8 @@ class _SearchScreenState extends State<_SearchScreen> {
                             distanceM: r.distanceM,
                             lines: r.lines,
                             favorite: true,
+                            modeLabel:
+                                r.mode == kModeTram ? 'Tramvaj' : 'Autobus',
                             onTap: () => Navigator.of(context).pop(r.stop.id),
                           ),
                         const SizedBox(height: ZetSpace.md),
@@ -220,19 +222,32 @@ class _SearchScreenState extends State<_SearchScreen> {
     return out;
   }
 
+  /// One row per saved name and mode, pointing at that name's nearest
+  /// platform of the saved mode.
   List<_SearchResult> _favorites() {
     final pos = widget.feed.position.value;
-    final stopById = widget.feed.stopById;
+    final all = widget.feed.stops.value;
     final linesByGroup = _linesByGroup();
     final out = <_SearchResult>[];
-    for (final id in widget.settings.favorites) {
-      final s = stopById[id];
-      if (s == null) continue;
-      if (out.any((o) => sameStopGroup(o.stop, s))) continue;
+    for (final fav in widget.settings.favoriteEntries) {
+      StopInfo? best;
+      var bestD = double.infinity;
+      for (final s in all) {
+        if (!s.serves(fav.mode) || stopGroupKey(s.name) != fav.nameKey) {
+          continue;
+        }
+        final d = haversineM(pos.lat, pos.lon, s.lat, s.lon);
+        if (d < bestD) {
+          bestD = d;
+          best = s;
+        }
+      }
+      if (best == null) continue;
       out.add(_SearchResult(
-        stop: s,
-        distanceM: haversineM(pos.lat, pos.lon, s.lat, s.lon),
-        lines: linesByGroup[stopGroupKey(s.name)] ?? const <String>{},
+        stop: best,
+        distanceM: bestD,
+        lines: linesByGroup[fav.nameKey] ?? const <String>{},
+        mode: fav.mode,
       ));
     }
     out.sort((a, b) => a.distanceM.compareTo(b.distanceM));
@@ -333,11 +348,15 @@ class _SearchResult {
   final Set<String> lines;
   final int rank;
 
+  /// Set for favourites: the mode the name was saved for.
+  final int mode;
+
   const _SearchResult({
     required this.stop,
     required this.distanceM,
     required this.lines,
     this.rank = 0,
+    this.mode = 0,
   });
 }
 
@@ -348,20 +367,27 @@ class _StopResult extends StatelessWidget {
   final VoidCallback onTap;
   final bool favorite;
 
+  /// "Tramvaj"/"Autobus" for favourites, which are saved per mode.
+  final String? modeLabel;
+
   const _StopResult({
     required this.stop,
     required this.distanceM,
     required this.lines,
     required this.onTap,
     this.favorite = false,
+    this.modeLabel,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    final lineLabel = lines.isEmpty
+    final linesText = lines.isEmpty
         ? null
         : 'Linije ${(lines.toList()..sort()).join(', ')}';
+    final lineLabel = modeLabel == null
+        ? linesText
+        : (linesText == null ? modeLabel : '$modeLabel · $linesText');
 
     return ListTile(
       onTap: onTap,

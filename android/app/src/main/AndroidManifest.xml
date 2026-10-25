@@ -56,6 +56,8 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <!-- Moj ZET (ticket purchase), opened from the map's ticket button. -->
+        <package android:name="com.zetmobile"/>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

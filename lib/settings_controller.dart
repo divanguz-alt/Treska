@@ -47,47 +47,59 @@ class SettingsController extends ChangeNotifier {
     } catch (_) {}
   }
 
-  bool isFavorite(String stopId) => _favorites.contains(stopId);
+  /// A favourite is a stop *name* in one mode, not a platform: saving
+  /// „Trg dr. F. Tuđmana“ as a tram stop stars every tram platform with that
+  /// name, while its bus platforms stay plain unless saved separately.
+  static String favoriteKey(String name, int mode) =>
+      '${mode == kModeTram ? _tramPrefix : _busPrefix}${stopGroupKey(name)}';
 
-  /// Saved ids that refer to [stop]: its own id or any platform of the same
-  /// stop. The board shows a stop under its nearest platform's id, which
-  /// changes as the user moves, so an id-only check would make the star flicker
-  /// on and off for the very same stop.
-  Set<String> favoriteIdsFor(StopInfo stop, Map<String, StopInfo> stopById) {
-    final out = <String>{};
-    for (final id in _favorites) {
-      if (id == stop.id) {
-        out.add(id);
-        continue;
-      }
-      final saved = stopById[id];
-      if (saved != null && sameStopGroup(saved, stop)) out.add(id);
-    }
-    return out;
-  }
+  static const String _tramPrefix = 'tram|';
+  static const String _busPrefix = 'bus|';
 
-  bool isFavoriteStop(StopInfo stop, Map<String, StopInfo> stopById) =>
-      favoriteIdsFor(stop, stopById).isNotEmpty;
+  static bool _isKey(String value) =>
+      value.startsWith(_tramPrefix) || value.startsWith(_busPrefix);
 
-  /// Saves [stop], or forgets every saved platform of it.
-  Future<void> toggleFavoriteStop(
-      StopInfo stop, Map<String, StopInfo> stopById) async {
-    final saved = favoriteIdsFor(stop, stopById);
-    if (saved.isEmpty) {
-      _favorites.add(stop.id);
-    } else {
-      _favorites.removeAll(saved);
-    }
+  bool isFavoriteStop(StopInfo stop, int mode) =>
+      _favorites.contains(favoriteKey(stop.name, mode));
+
+  /// True when [stop] is drawn as a star on the map in [mode]: it must serve
+  /// that mode and its name must be saved for it.
+  bool isFavoriteOnMap(StopInfo stop, int mode) =>
+      stop.serves(mode) && isFavoriteStop(stop, mode);
+
+  /// Saved (name key, mode) pairs, for lists such as search.
+  List<({String nameKey, int mode})> get favoriteEntries => [
+        for (final f in _favorites)
+          if (f.startsWith(_tramPrefix))
+            (nameKey: f.substring(_tramPrefix.length), mode: kModeTram)
+          else if (f.startsWith(_busPrefix))
+            (nameKey: f.substring(_busPrefix.length), mode: kModeBus),
+      ];
+
+  Future<void> toggleFavoriteStop(StopInfo stop, int mode) async {
+    final key = favoriteKey(stop.name, mode);
+    if (!_favorites.remove(key)) _favorites.add(key);
     notifyListeners();
     await _saveFavorites();
   }
 
-  Future<void> toggleFavorite(String stopId) async {
-    if (_favorites.contains(stopId)) {
-      _favorites.remove(stopId);
-    } else {
-      _favorites.add(stopId);
+  /// Builds before 2.1.8 saved platform ids. Once the stop list is known, turn
+  /// each into the name key of every mode its stop serves. Unknown ids are
+  /// kept until a stop list resolves them.
+  Future<void> migrateLegacyFavorites(Map<String, StopInfo> stopById) async {
+    final legacy = [for (final f in _favorites) if (!_isKey(f)) f];
+    if (legacy.isEmpty || stopById.isEmpty) return;
+    var changed = false;
+    for (final id in legacy) {
+      final stop = stopById[id];
+      if (stop == null) continue;
+      _favorites.remove(id);
+      for (final mode in const [kModeTram, kModeBus]) {
+        if (stop.serves(mode)) _favorites.add(favoriteKey(stop.name, mode));
+      }
+      changed = true;
     }
+    if (!changed) return;
     notifyListeners();
     await _saveFavorites();
   }

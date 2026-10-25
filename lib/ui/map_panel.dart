@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,7 @@ import '../core/theme.dart';
 import '../core/tokens.dart';
 import '../data/feed_controller.dart';
 import '../data/models.dart';
+import '../data/moj_zet.dart';
 import '../settings_controller.dart';
 import '../theme_controller.dart';
 import 'diagnostics_sheet.dart';
@@ -358,6 +360,7 @@ class _MapPanelState extends State<MapPanel> {
       BuildContext context, List<StopInfo> all, int mode) {
     final brightness = Theme.of(context).brightness;
     final favorites = widget.settings.favorites;
+    final settings = widget.settings;
     if (identical(_circlesStops, all) &&
         _circlesMode == mode &&
         _circlesBrightness == brightness &&
@@ -370,7 +373,7 @@ class _MapPanelState extends State<MapPanel> {
     // Favourites are drawn as stars on top instead, so skip their disc.
     _stopCircles = [
       for (final s in all)
-        if (s.serves(mode) && !favorites.contains(s.id))
+        if (s.serves(mode) && !settings.isFavoriteOnMap(s, mode))
           CircleMarker<String>(
             point: LatLng(s.lat, s.lon),
             hitValue: s.id,
@@ -424,11 +427,14 @@ class _MapPanelState extends State<MapPanel> {
               }
               final selectedShape = _selectedShape;
               final selectedVehicle = _selectedVehicle;
-              final stopById = widget.feed.stopById;
-              final favoriteStops = [
-                for (final id in widget.settings.favorites)
-                  if (stopById[id] != null) stopById[id]!,
-              ];
+              // Every platform of a saved name, in the mode on screen, is a
+              // star instead of a disc.
+              final favoriteStops = widget.settings.favorites.isEmpty
+                  ? const <StopInfo>[]
+                  : [
+                      for (final s in widget.feed.stops.value)
+                        if (widget.settings.isFavoriteOnMap(s, widget.mode)) s,
+                    ];
 
               return FlutterMap(
                 mapController: _map,
@@ -506,8 +512,8 @@ class _MapPanelState extends State<MapPanel> {
                       for (final s in favoriteStops)
                           Marker(
                             point: LatLng(s.lat, s.lon),
-                            width: 40,
-                            height: 40,
+                            width: 32,
+                            height: 32,
                             alignment: Alignment.center,
                             child: GestureDetector(
                               behavior: HitTestBehavior.opaque,
@@ -645,16 +651,25 @@ class _MapPanelState extends State<MapPanel> {
           ),
         ),
 
+        // Ticket purchase lives in ZET's own app. Its button mirrors the
+        // location FAB on the left, so the right edge stays map controls only
+        // and both sit in the thumb zone just above the sheet.
         Positioned(
-          left: ZetSpace.sm,
+          left: ZetSpace.lg,
+          bottom: bottomInset + ZetSpace.lg,
+          child: const _TicketFab(),
+        ),
+
+        Positioned(
+          left: ZetSpace.lg + 56 + ZetSpace.sm,
           bottom: bottomInset + ZetSpace.sm,
           child: _Attribution(colors: colors),
         ),
 
         if (_tilesFailed)
           Positioned(
-            left: ZetSpace.xl,
-            bottom: bottomInset + ZetSpace.xxl + ZetSpace.lg,
+            left: ZetSpace.lg,
+            bottom: bottomInset + ZetSpace.lg + 56 + ZetSpace.md,
             child: _TileErrorChip(onTap: _retryTiles),
           ),
       ],
@@ -846,8 +861,12 @@ class _TileErrorChip extends StatelessWidget {
   }
 }
 
-/// A favourite stop on the map. Deliberately a star, not a disc, so it reads as
-/// a saved place rather than an ordinary stop.
+/// A favourite stop on the map: the same stop, drawn as a star instead of a
+/// disc, in the disc's colours.
+///
+/// Painted as a path rather than an [Icon] with text shadows: the glyph's
+/// shadow layer was left behind as a dark "ghost" star at the old screen
+/// position whenever the map was panned.
 class _FavoriteStar extends StatelessWidget {
   final bool selected;
   const _FavoriteStar({required this.selected});
@@ -855,22 +874,56 @@ class _FavoriteStar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
+    final size = selected ? 26.0 : 22.0;
     return Center(
-      child: Icon(
-        Icons.star_rounded,
-        size: selected ? 30 : 26,
-        color: colors.primary,
-        shadows: [
-          Shadow(color: colors.bg, blurRadius: 4),
-          Shadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 2,
-            offset: const Offset(0, 1),
-          ),
-        ],
+      child: CustomPaint(
+        size: Size.square(size),
+        painter: _StarPainter(
+          fill: colors.primary,
+          stroke: colors.bg,
+        ),
       ),
     );
   }
+}
+
+class _StarPainter extends CustomPainter {
+  final Color fill;
+  final Color stroke;
+  const _StarPainter({required this.fill, required this.stroke});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final outer = size.shortestSide / 2 - 1.5;
+    final inner = outer * 0.48;
+    // latlong2 also exports a `Path`.
+    final path = ui.Path();
+    for (var i = 0; i < 10; i++) {
+      final r = i.isEven ? outer : inner;
+      final a = -math.pi / 2 + i * math.pi / 5;
+      final p = c + Offset(math.cos(a) * r, math.sin(a) * r);
+      if (i == 0) {
+        path.moveTo(p.dx, p.dy);
+      } else {
+        path.lineTo(p.dx, p.dy);
+      }
+    }
+    path.close();
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = stroke
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeJoin = StrokeJoin.round,
+    );
+    canvas.drawPath(path, Paint()..color = fill);
+  }
+
+  @override
+  bool shouldRepaint(_StarPainter old) =>
+      old.fill != fill || old.stroke != stroke;
 }
 
 /// Blue dot with a halo; dimmed when there is no GPS fix.
@@ -1126,6 +1179,51 @@ class _LocationFab extends StatelessWidget {
               color: following
                   ? colors.onPrimary
                   : colors.onPrimaryContainer,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tonal FAB that opens Moj ZET (or its store page) to buy a ticket.
+class _TicketFab extends StatelessWidget {
+  const _TicketFab();
+
+  Future<void> _open(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await MojZet.open();
+    if (!ok) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+          content: Text('Ne mogu otvoriti Moj ZET ni Trgovinu Play.'),
+        ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return Tooltip(
+      message: 'Kupi kartu (Moj ZET)',
+      child: Material(
+        color: colors.primaryContainer,
+        elevation: 3,
+        borderRadius: BorderRadius.circular(ZetRadius.fab),
+        shadowColor: Colors.black.withValues(alpha: 0.25),
+        child: InkWell(
+          onTap: () => _open(context),
+          borderRadius: BorderRadius.circular(ZetRadius.fab),
+          child: SizedBox(
+            width: 56,
+            height: 56,
+            child: Icon(
+              Icons.confirmation_number_outlined,
+              size: 24,
+              color: colors.onPrimaryContainer,
+              semanticLabel: 'Kupi kartu u aplikaciji Moj ZET',
             ),
           ),
         ),

@@ -28,6 +28,7 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "openUrl" -> result.success(openUrl(call.argument("url")))
+                    "openApp" -> result.success(openApp(call.argument("package")))
                     else -> result.notImplemented()
                 }
             }
@@ -85,6 +86,28 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
             // Some OEM builds lack this screen; the OS prompt still covers it.
         }
+    }
+
+    /**
+     * Launches the app [pkg] if it is installed, else its Play Store page
+     * (store app first, web as the last resort). Returns false only when none
+     * of those could be opened. The package must be listed under <queries> in
+     * the manifest, or Android 11+ hides it and we always land in the store.
+     */
+    private fun openApp(pkg: String?): Boolean {
+        if (pkg.isNullOrEmpty()) return false
+        val launch = packageManager.getLaunchIntentForPackage(pkg)
+        if (launch != null) {
+            return try {
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(launch)
+                true
+            } catch (e: Exception) {
+                false
+            }
+        }
+        return openUrl("market://details?id=$pkg") ||
+            openUrl("https://play.google.com/store/apps/details?id=$pkg")
     }
 
     /** Opens a link in whatever browser/activity can handle it. */

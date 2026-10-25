@@ -79,12 +79,15 @@ class _HomeScreenState extends State<HomeScreen>
     )..repeat();
     _pulseCurve = CurvedAnimation(parent: _pulse, curve: Curves.easeOut);
     widget.settings.addListener(_onRadius);
+    widget.feed.stops.addListener(_onStops);
+    _onStops();
     _syncPinned();
   }
 
   @override
   void dispose() {
     widget.settings.removeListener(_onRadius);
+    widget.feed.stops.removeListener(_onStops);
     _sheet.removeListener(_onSheetChanged);
     _sheet.dispose();
     _pulse.dispose();
@@ -113,10 +116,13 @@ class _HomeScreenState extends State<HomeScreen>
   /// The worker computes boards for these even outside the nearby radius, so a
   /// stop picked far away (search, map star, favourite) still has departures.
   void _syncPinned() {
-    widget.feed.setPinnedStops({
-      ...widget.settings.favorites,
-      ?_selectedStopId,
-    });
+    widget.feed.setPinnedStops({?_selectedStopId});
+  }
+
+  /// Favourites saved by older builds are platform ids; convert them once the
+  /// stop list is available.
+  void _onStops() {
+    widget.settings.migrateLegacyFavorites(widget.feed.stopById);
   }
 
   void _setMode(int mode) {

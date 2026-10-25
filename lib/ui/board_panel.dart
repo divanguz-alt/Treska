@@ -236,7 +236,7 @@ class _BoardScroll extends StatelessWidget {
                   child: StopHeader(
                     stop: stop!,
                     settings: settings,
-                    stopById: feed.stopById,
+                    mode: mode,
                   ),
                 ),
               ),

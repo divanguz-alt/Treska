@@ -219,26 +219,71 @@ void main() {
         StopHeader(
           stop: NearbyStop(stop: tramStop(), distanceM: 160, arrivals: const []),
           settings: settings,
+          mode: kModeTram,
         ),
         Brightness.light,
       ),
     );
     await tester.pump();
 
-    expect(settings.isFavorite('98_1'), isFalse);
+    expect(settings.isFavoriteStop(tramStop(), kModeTram), isFalse);
     expect(find.byIcon(Icons.star_border), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.star_border));
     await tester.pump();
 
-    expect(settings.isFavorite('98_1'), isTrue);
+    expect(settings.isFavoriteStop(tramStop(), kModeTram), isTrue);
     expect(find.byIcon(Icons.star), findsOneWidget);
     expect(find.textContaining('spremljena'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.star));
     await tester.pump();
-    expect(settings.isFavorite('98_1'), isFalse);
+    expect(settings.isFavoriteStop(tramStop(), kModeTram), isFalse);
     expect(find.byIcon(Icons.star_border), findsOneWidget);
+  });
+
+  test('a favourite covers every platform of the name, per mode', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsController();
+    await settings.load();
+    const tramA = StopInfo(
+        id: 't1', name: 'Trg dr. F. Tuđmana', lat: 45.81, lon: 15.96,
+        modes: kModeTram);
+    const tramB = StopInfo(
+        id: 't2', name: 'Trg dr. F. Tuđmana ', lat: 45.811, lon: 15.961,
+        modes: kModeTram);
+    const bus = StopInfo(
+        id: 'b1', name: 'Trg dr. F. Tuđmana', lat: 45.812, lon: 15.962,
+        modes: kModeBus);
+
+    await settings.toggleFavoriteStop(tramA, kModeTram);
+
+    expect(settings.isFavoriteOnMap(tramA, kModeTram), isTrue);
+    expect(settings.isFavoriteOnMap(tramB, kModeTram), isTrue,
+        reason: 'every tram platform of the name is starred');
+    expect(settings.isFavoriteOnMap(bus, kModeBus), isFalse,
+        reason: 'the bus stop of the same name is saved separately');
+
+    await settings.toggleFavoriteStop(bus, kModeBus);
+    expect(settings.isFavoriteOnMap(bus, kModeBus), isTrue);
+
+    await settings.toggleFavoriteStop(tramB, kModeTram);
+    expect(settings.isFavoriteOnMap(tramA, kModeTram), isFalse);
+    expect(settings.isFavoriteOnMap(bus, kModeBus), isTrue);
+  });
+
+  test('platform ids saved by older builds become name favourites', () async {
+    SharedPreferences.setMockInitialValues({
+      'favorite_stop_ids': ['98_1'],
+    });
+    final settings = SettingsController();
+    await settings.load();
+    await settings.migrateLegacyFavorites({'98_1': tramStop()});
+
+    expect(settings.favorites, {
+      SettingsController.favoriteKey('Črnomerec', kModeTram),
+    });
+    expect(settings.isFavoriteStop(tramStop(), kModeTram), isTrue);
   });
 
   testWidgets('stop board renders every group and stays tappable',

@@ -13,16 +13,16 @@ class StopHeader extends StatelessWidget {
   final SettingsController settings;
   final VoidCallback? onToggleFavourite;
 
-  /// All stops by id, so a star saved on another platform of this stop still
-  /// counts. Empty means "compare ids only".
-  final Map<String, StopInfo> stopById;
+  /// Mode the board shows. A favourite is saved per name *and* mode, so the
+  /// tram and bus stops of the same name can be starred independently.
+  final int mode;
 
   const StopHeader({
     super.key,
     required this.stop,
     required this.settings,
     this.onToggleFavourite,
-    this.stopById = const {},
+    this.mode = kModeTram,
   });
 
   @override
@@ -34,7 +34,7 @@ class StopHeader extends StatelessWidget {
       builder: (context, _) {
         final colors = context.zet;
         final walkMin = (stop.distanceM / 80).round().clamp(1, 99);
-        final favourite = settings.isFavoriteStop(stop.stop, stopById);
+        final favourite = settings.isFavoriteStop(stop.stop, mode);
 
         return Padding(
           // Handoff: `padding: 0 12px 10px 24px` — the stop name lines up with
@@ -87,7 +87,7 @@ class StopHeader extends StatelessWidget {
                 onPressed: onToggleFavourite ??
                     () {
                       final wasFavorite = favourite;
-                      settings.toggleFavoriteStop(stop.stop, stopById);
+                      settings.toggleFavoriteStop(stop.stop, mode);
                       ScaffoldMessenger.of(context)
                         ..hideCurrentSnackBar()
                         ..showSnackBar(
