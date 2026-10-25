@@ -1,4 +1,17 @@
-# HANDOFF — Treska (ZET 2) v2.1.6
+# HANDOFF — Treska (ZET 2) v2.1.9
+
+## v2.1.9 (2026-10-25)
+
+- Realtime samo s `zet.hr/gtfs-rt-protobuf` (5 s). Relay `zet.skoljka.org`
+  izbačen; prikrivao je krive brojeve polja u `gtfs_rt.dart` (VehiclePosition,
+  FeedHeader.timestamp), sada ispravljeno po specifikaciji.
+- Noćni polasci iza ponoći (jučerašnji 24:xx+) i reparse indeksa u ponoć.
+- Uvjetni GET za statički ZIP (304 umjesto 18,8 MB).
+- Karta: OpenFreeMap vektorski stilovi (positron / dark), raster kao rezerva.
+- Favoriti iz pretrage otvaraju se u spremljenom načinu.
+
+Starije bilješke (v2.1.6) slijede ispod.
+
 
 ## Status: READY FOR RELEASE
 
