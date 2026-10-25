@@ -22,67 +22,90 @@ class StopHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.zet;
-    final walkMin = (stop.distanceM / 80).round().clamp(1, 99);
-    final favourite = settings.isFavorite(stop.stop.id);
+    // Rebuild on its own when the star is toggled, so the icon never lags
+    // behind the saved state even if a parent forgets to listen.
+    return ListenableBuilder(
+      listenable: settings,
+      builder: (context, _) {
+        final colors = context.zet;
+        final walkMin = (stop.distanceM / 80).round().clamp(1, 99);
+        final favourite = settings.isFavorite(stop.stop.id);
 
-    return Padding(
-      // Handoff: `padding: 0 12px 10px 24px` — the stop name lines up with the
-      // list's 24 dp gutter, not the rows' 12 dp one.
-      padding: const EdgeInsets.fromLTRB(
-        ZetSpace.sheet,
-        0,
-        ZetSpace.md,
-        10,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  stop.stop.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                    color: colors.text,
-                    height: 1.15,
-                    ),
-                ),
-                const SizedBox(height: 4),
-                Row(
+        return Padding(
+          // Handoff: `padding: 0 12px 10px 24px` — the stop name lines up with
+          // the list's 24 dp gutter, not the rows' 12 dp one.
+          padding: const EdgeInsets.fromLTRB(
+            ZetSpace.sheet,
+            0,
+            ZetSpace.md,
+            10,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.directions_walk,
-                        size: 18, color: colors.textDim),
-                    const SizedBox(width: 4),
                     Text(
-                      '${distanceLabel(stop.distanceM)} · $walkMin min hoda',
+                      stop.stop.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 14,
-                        color: colors.textDim,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        color: colors.text,
+                        height: 1.15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.directions_walk,
+                            size: 18, color: colors.textDim),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${distanceLabel(stop.distanceM)} · $walkMin min hoda',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: colors.textDim,
+                          ),
                         ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
+              ),
+              IconButton(
+                tooltip: favourite ? 'Ukloni iz spremljenih' : 'Spremi stanicu',
+                onPressed: onToggleFavourite ??
+                    () {
+                      final wasFavorite = settings.isFavorite(stop.stop.id);
+                      settings.toggleFavorite(stop.stop.id);
+                      ScaffoldMessenger.of(context)
+                        ..hideCurrentSnackBar()
+                        ..showSnackBar(
+                          SnackBar(
+                            duration: const Duration(seconds: 2),
+                            content: Text(
+                              wasFavorite
+                                  ? '${stop.stop.name} uklonjena iz spremljenih'
+                                  : '${stop.stop.name} spremljena · označena zvjezdicom',
+                            ),
+                          ),
+                        );
+                    },
+                icon: Icon(
+                  favourite ? Icons.star : Icons.star_border,
+                  size: 24,
+                  color: favourite ? colors.primary : colors.textDim,
+                ),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: favourite ? 'Uklonjeno iz spremljenih' : 'Spremi stanicu',
-            onPressed: onToggleFavourite ?? () => settings.toggleFavorite(stop.stop.id),
-            icon: Icon(
-              favourite ? Icons.star : Icons.star_border,
-              size: 24,
-              color: favourite ? colors.primary : colors.textDim,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

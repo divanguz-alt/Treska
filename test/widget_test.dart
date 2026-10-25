@@ -209,6 +209,38 @@ void main() {
     expect(find.textContaining('2 min hoda'), findsOneWidget);
   });
 
+  testWidgets('favourite star toggles and is saved for the map',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsController();
+    await settings.load();
+    await tester.pumpWidget(
+      host(
+        StopHeader(
+          stop: NearbyStop(stop: tramStop(), distanceM: 160, arrivals: const []),
+          settings: settings,
+        ),
+        Brightness.light,
+      ),
+    );
+    await tester.pump();
+
+    expect(settings.isFavorite('98_1'), isFalse);
+    expect(find.byIcon(Icons.star_border), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.star_border));
+    await tester.pump();
+
+    expect(settings.isFavorite('98_1'), isTrue);
+    expect(find.byIcon(Icons.star), findsOneWidget);
+    expect(find.textContaining('spremljena'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.star));
+    await tester.pump();
+    expect(settings.isFavorite('98_1'), isFalse);
+    expect(find.byIcon(Icons.star_border), findsOneWidget);
+  });
+
   testWidgets('stop board renders every group and stays tappable',
       (tester) async {
     ArrivalGroup? opened;
@@ -268,6 +300,18 @@ void main() {
       // Moving the camera down means a smaller latitude, same longitude.
       expect(shifted.latitude, lessThan(user.latitude));
       expect(shifted.longitude, user.longitude);
+    });
+
+    // The search bar and live chip cover the top of the map, so the visible
+    // strip is shorter than the hidden sheet height; the shift has to shrink by
+    // the same amount or the user lands too high.
+    test('top UI inset reduces the sheet offset', () {
+      final user = LatLng(45.815, 15.9819);
+      final plain = MapPanel.shiftForSheet(user, 14, 900);
+      final withTop = MapPanel.shiftForSheet(user, 14, 900, topInsetPx: 106);
+
+      expect(withTop.latitude, greaterThan(plain.latitude));
+      expect(withTop.latitude, lessThan(user.latitude));
     });
   });
 

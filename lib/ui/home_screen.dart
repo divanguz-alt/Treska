@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/theme.dart';
@@ -48,10 +49,30 @@ class _HomeScreenState extends State<HomeScreen>
   /// the snap points.
   late final DraggableScrollableController _sheet;
 
+  /// Whether the sheet is part of the tree at all. When the user drags it all
+  /// the way down (or taps the chevron) we remove it, which is the only state
+  /// from which restoring is completely unambiguous: a fresh sheet is inserted
+  /// at the half height.
+  bool _sheetVisible = true;
+
+  /// True while the collapse animation is running, so the size listener below
+  /// does not remove the sheet halfway through the animation.
+  bool _hiding = false;
+
+  /// True while the restore animation is running. Without this the size
+  /// listener sees the sheet passing through the "sliver" threshold and removes
+  /// it before it can grow back to the half height.
+  bool _expanding = false;
+
+  /// Stable snap-size list. A fresh list on every build would make
+  /// [DraggableScrollableSheet.didUpdateWidget] think the snap points changed
+  /// and run a snap simulation that cancels the current drag/animation.
+  List<double>? _snapSizes;
+
   @override
   void initState() {
     super.initState();
-    _sheet = DraggableScrollableController();
+    _sheet = DraggableScrollableController()..addListener(_onSheetChanged);
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
@@ -63,9 +84,24 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     widget.settings.removeListener(_onRadius);
+    _sheet.removeListener(_onSheetChanged);
     _sheet.dispose();
     _pulse.dispose();
     super.dispose();
+  }
+
+  /// Hand the screen back to the map as soon as the user parks the sheet at the
+  /// bottom. Deferring to a post-frame callback keeps the removal out of the
+  /// controller's own notification/build pass.
+  void _onSheetChanged() {
+    if (!mounted || !_sheetVisible || _hiding || _expanding) return;
+    if (!_sheet.isAttached || _sheet.size > 0.08) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_sheetVisible || _hiding || _expanding) return;
+      if (_sheet.isAttached && _sheet.size <= 0.08) {
+        setState(() => _sheetVisible = false);
+      }
+    });
   }
 
   void _onRadius() => widget.feed.setRadius(widget.settings.radiusM);
@@ -79,6 +115,13 @@ class _HomeScreenState extends State<HomeScreen>
     final full =
         (ZetSheetHeight.full / screen).clamp(half + 0.05, 0.94).toDouble();
     return (peek: peek, half: half, full: full);
+  }
+
+  List<double> _snapSizesFor(({double peek, double half, double full}) f) {
+    final next = <double>[0, f.peek, f.half, f.full];
+    final current = _snapSizes;
+    if (current != null && listEquals(current, next)) return current;
+    return _snapSizes = next;
   }
 
 
@@ -100,29 +143,51 @@ class _HomeScreenState extends State<HomeScreen>
     _expandSheet();
   }
 
+  /// Brings the board back. While the sheet is mounted this animates it to the
+  /// half height; after it was thrown away we simply insert a fresh sheet at
+  /// the half height, which cannot fail to restore it.
   void _expandSheet() {
-    if (!_sheet.isAttached) return;
-    setState(() {});
+    if (!_sheetVisible) {
+      setState(() => _sheetVisible = true);
+      return;
+    }
+    if (!_sheet.isAttached) {
+      // The controller lost its client (the sheet is a sliver). Throw the
+      // sliver away and insert a fresh sheet at the half height.
+      setState(() => _sheetVisible = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _sheetVisible = true);
+      });
+      return;
+    }
     final screen = MediaQuery.of(context).size.height;
     final fractions = _fractions(screen);
-    try {
-      _sheet.animateTo(
-        fractions.half,
-        duration: ZetMotion.sheet,
-        curve: ZetMotion.emphasized,
-      );
-    } catch (_) {}
+    if (_sheet.size >= fractions.half - 0.01) return;
+    _expanding = true;
+    _sheet
+        .animateTo(
+          fractions.half,
+          duration: ZetMotion.sheet,
+          curve: ZetMotion.emphasized,
+        )
+        .whenComplete(() => _expanding = false);
   }
 
-  void _collapseSheet() {
-    if (!_sheet.isAttached) return;
+  Future<void> _collapseSheet() async {
+    if (!_sheetVisible) return;
+    _hiding = true;
     try {
-      _sheet.animateTo(
-        0,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+      if (_sheet.isAttached) {
+        await _sheet.animateTo(
+          0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+      }
     } catch (_) {}
+    _hiding = false;
+    if (!mounted) return;
+    setState(() => _sheetVisible = false);
   }
 
   @override
@@ -137,156 +202,108 @@ class _HomeScreenState extends State<HomeScreen>
       resizeToAvoidBottomInset: false,
       body: PulseScope(
         animation: _pulseCurve,
-        child: AnimatedBuilder(
-          animation: _sheet,
-          builder: (context, _) {
-            // Keep the FAB and zoom controls just above the sheet's top edge.
-            final sheetSize = _sheet.isAttached ? _sheet.size : fractions.half;
-            final sheetPx = sheetSize * screen;
-            // Show restore pill only when effectively collapsed
-            final hidden = sheetSize <= 0.02;
-
-            return Stack(
-              children: [
-                Positioned.fill(
-                  child: MapPanel(
+        child: Stack(
+          children: [
+            // Only the map follows the sheet height. The sheet itself must not
+            // be rebuilt on every animation tick: a fresh snapSizes list would
+            // make didUpdateWidget schedule a snap that cancels the drag or
+            // the collapse animation.
+            Positioned.fill(
+              child: AnimatedBuilder(
+                animation: _sheet,
+                builder: (context, _) {
+                  final sheetSize = _sheetVisible
+                      ? (_sheet.isAttached ? _sheet.size : fractions.half)
+                      : 0.0;
+                  return MapPanel(
                     feed: widget.feed,
                     themeController: widget.themeController,
                     settings: widget.settings,
                     mode: _mode,
-                    sheetFraction: hidden ? 0 : sheetSize,
-                    bottomInsetPx: hidden ? 0 : sheetPx,
+                    sheetFraction: sheetSize,
+                    bottomInsetPx: sheetSize * screen,
                     selectedStopId: _selectedStopId,
                     onStopSelected: _selectStop,
-                  ),
-                ),
+                  );
+                },
+              ),
+            ),
 
-                // Scrim under the status bar so the header text stays legible
-                // over bright map tiles (handoff: 36 dp gradient).
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 36 + media.padding.top,
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            colors.bg.withValues(alpha: 0.92),
-                            colors.bg.withValues(alpha: 0),
-                          ],
-                        ),
-                      ),
+            // Scrim under the status bar so the header text stays legible
+            // over bright map tiles (handoff: 36 dp gradient).
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 36 + media.padding.top,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        colors.bg.withValues(alpha: 0.92),
+                        colors.bg.withValues(alpha: 0),
+                      ],
                     ),
                   ),
                 ),
+              ),
+            ),
 
-                IgnorePointer(
-                  ignoring: !hidden,
-                  child: AnimatedOpacity(
-                    opacity: hidden ? 1 : 0,
-                    duration: const Duration(milliseconds: 200),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () {
-                        setState(() {});
-                        final screen = MediaQuery.of(context).size.height;
-                        final fractions = _fractions(screen);
-                        if (_sheet.isAttached) {
-                          _sheet.animateTo(
-                            fractions.half,
-                            duration: ZetMotion.sheet,
-                            curve: ZetMotion.emphasized,
-                          );
-                        }
-                      },
-                    ),
-                  ),
+            if (_sheetVisible)
+              _BottomSheetHost(
+                key: const ValueKey('board-sheet'),
+                controller: _sheet,
+                minChild: 0,
+                initialChild: fractions.half,
+                maxChild: fractions.full,
+                snapSizes: _snapSizesFor(fractions),
+                bottomInset: math.max(
+                  media.padding.bottom,
+                  media.viewPadding.bottom,
                 ),
+                builder: (context, scrollController) => BoardPanel(
+                  feed: widget.feed,
+                  settings: widget.settings,
+                  mode: _mode,
+                  selectedStopId: _selectedStopId,
+                  scrollController: scrollController,
+                  onModeChanged: (mode) {
+                    if (mode == _mode) return;
+                    setState(() => _mode = mode);
+                  },
+                  onStopSelected: _selectStop,
+                  onCollapse: _collapseSheet,
+                ),
+              ),
 
-                _BottomSheetHost(
-                  controller: _sheet,
-                  minChild: 0,
-                  initialChild: fractions.half,
-                  maxChild: fractions.full,
-                  peek: fractions.peek,
-                  bottomInset: math.max(
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: math.max(
                     media.padding.bottom,
                     media.viewPadding.bottom,
-                  ),
-                  builder: (context, scrollController) => BoardPanel(
-                    feed: widget.feed,
-                    settings: widget.settings,
-                    mode: _mode,
-                    selectedStopId: _selectedStopId,
-                    scrollController: scrollController,
-                    onModeChanged: (mode) {
-                      if (mode == _mode) return;
-                      setState(() => _mode = mode);
-                    },
-                    onStopSelected: _selectStop,
-                    onCollapse: _collapseSheet,
-                  ),
+                  ) +
+                  ZetSpace.lg,
+              child: SafeArea(
+                top: false,
+                child: AnimatedBuilder(
+                  animation: _sheet,
+                  builder: (context, _) {
+                    // Also treat a sliver of sheet at the bottom as collapsed:
+                    // the snap can stop just above zero, leaving an empty
+                    // rounded strip with no handle to grab.
+                    final collapsed = !_sheetVisible ||
+                        (_sheet.isAttached && _sheet.size <= 0.08);
+                    if (!collapsed) return const SizedBox.shrink();
+                    return Center(child: _ShowBoardPill(onTap: _expandSheet));
+                  },
                 ),
-
-                if (hidden)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    top: MediaQuery.of(context).padding.top + 80,
-                    child: IgnorePointer(
-                      ignoring: true,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onTap: () {
-                          if (_sheet.isAttached) {
-                            try {
-                              _sheet.animateTo(
-                                fractions.half,
-                                duration: ZetMotion.sheet,
-                                curve: ZetMotion.emphasized,
-                              );
-                            } catch (_) {}
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-
-                if (hidden)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: math.max(
-                          media.padding.bottom,
-                          media.viewPadding.bottom,
-                        ) +
-                        ZetSpace.lg,
-                    child: SafeArea(
-                      top: false,
-                      child: Center(
-                        child: _ShowBoardPill(onTap: () {
-                          setState(() {});
-                          if (_sheet.isAttached) {
-                            try {
-                              _sheet.animateTo(
-                                fractions.half,
-                                duration: ZetMotion.sheet,
-                                curve: ZetMotion.emphasized,
-                              );
-                            } catch (_) {}
-                          }
-                        }),
-                      ),
-                    ),
-                  ),
-              ],
-            );
-          },
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -345,8 +362,9 @@ class _BottomSheetHost extends StatelessWidget {
   final double initialChild;
   final double maxChild;
 
-  /// Intermediate snap point (the "peek" height).
-  final double peek;
+  /// Stable snap points, supplied by the screen. Recreating this list on every
+  /// build makes the sheet snap and cancel drags.
+  final List<double> snapSizes;
 
   /// Android navigation inset, kept inside the sheet's own background.
   final double bottomInset;
@@ -354,11 +372,12 @@ class _BottomSheetHost extends StatelessWidget {
   final Widget Function(BuildContext, ScrollController) builder;
 
   const _BottomSheetHost({
+    super.key,
     required this.controller,
     required this.minChild,
     required this.initialChild,
     required this.maxChild,
-    required this.peek,
+    required this.snapSizes,
     required this.bottomInset,
     required this.builder,
   });
@@ -373,7 +392,7 @@ class _BottomSheetHost extends StatelessWidget {
       initialChildSize: initialChild,
       maxChildSize: maxChild,
       snap: true,
-      snapSizes: [minChild, peek, initialChild, maxChild],
+      snapSizes: snapSizes,
       builder: (context, scrollController) {
         return LayoutBuilder(
           builder: (context, constraints) {
@@ -396,8 +415,18 @@ class _BottomSheetHost extends StatelessWidget {
               // The inset is padding *inside* the decorated box, so the sheet's
               // background reaches the bottom of the screen instead of letting
               // the map show through a gap below it.
+              //
+              // At sliver heights the full board would overflow, but the
+              // scrollable must stay mounted: it owns the sheet's scroll
+              // controller, and without a client the controller is detached and
+              // the sheet can no longer be animated back up from the pill.
               child: height < 90
-                  ? const SizedBox.expand()
+                  ? CustomScrollView(
+                      controller: scrollController,
+                      physics: const ClampingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
+                      ),
+                    )
                   : Padding(
                       padding: EdgeInsets.only(bottom: bottomInset),
                       child: builder(context, scrollController),

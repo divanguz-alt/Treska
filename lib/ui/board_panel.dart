@@ -50,7 +50,7 @@ class BoardPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([feed.snapshot, feed.status]),
+      listenable: Listenable.merge([feed.snapshot, feed.status, settings]),
       builder: (context, _) {
         final snapshot = feed.snapshot.value;
         final loading = snapshot == null;
@@ -102,6 +102,7 @@ class BoardPanel extends StatelessWidget {
           selectedStopId: active?.stop.id,
           onModeChanged: onModeChanged,
           onStopSelected: onStopSelected,
+          onRefresh: feed.refreshNow,
           onCollapse: onCollapse,
         );
 
@@ -109,21 +110,16 @@ class BoardPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: RefreshIndicator(
-                onRefresh: feed.refreshNow,
-                color: context.zet.primary,
-                backgroundColor: context.zet.bg,
-                child: _BoardScroll(
-                  feed: feed,
-                  settings: settings,
-                  scrollController: scrollController,
-                  header: header,
-                  stop: active,
-                  loading: loading,
-                  error: snapshot?.error ?? '',
-                  mode: mode,
-                  radiusM: settings.radiusM,
-                ),
+              child: _BoardScroll(
+                feed: feed,
+                settings: settings,
+                scrollController: scrollController,
+                header: header,
+                stop: active,
+                loading: loading,
+                error: snapshot?.error ?? '',
+                mode: mode,
+                radiusM: settings.radiusM,
               ),
             ),
             if (!loading && active != null) const _BoardLegend(),
@@ -263,6 +259,7 @@ class _BoardHeader extends StatelessWidget {
   final String? selectedStopId;
   final ValueChanged<int> onModeChanged;
   final ValueChanged<String> onStopSelected;
+  final Future<void> Function() onRefresh;
   final VoidCallback onCollapse;
 
   const _BoardHeader({
@@ -273,6 +270,7 @@ class _BoardHeader extends StatelessWidget {
     required this.selectedStopId,
     required this.onModeChanged,
     required this.onStopSelected,
+    required this.onRefresh,
     required this.onCollapse,
   });
 
@@ -285,7 +283,7 @@ class _BoardHeader extends StatelessWidget {
         children: [
           const _SheetHandle(),
           SizedBox(
-            height: 44,
+            height: 48,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: ZetSpace.sheet),
               child: Row(
@@ -307,9 +305,24 @@ class _BoardHeader extends StatelessWidget {
                   ),
                   const Spacer(),
                   IconButton(
+                    tooltip: 'Osvježi',
+                    onPressed: onRefresh,
+                    iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    constraints:
+                        const BoxConstraints.tightFor(width: 40, height: 40),
+                    padding: EdgeInsets.zero,
+                    color: colors.textDim,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                  IconButton(
                     tooltip: 'Skloni popis',
                     onPressed: onCollapse,
-                    iconSize: 22,
+                    iconSize: 24,
+                    visualDensity: VisualDensity.compact,
+                    constraints:
+                        const BoxConstraints.tightFor(width: 40, height: 40),
+                    padding: EdgeInsets.zero,
                     color: colors.textDim,
                     icon: const Icon(Icons.keyboard_arrow_down),
                   ),
@@ -704,7 +717,7 @@ class _EmptyBody extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Povuci za osvježavanje, povećaj radijus u postavkama ili '
+            'Osvježi gumbom iznad, povećaj radijus u postavkama ili '
             'provjeri GPS.',
             textAlign: TextAlign.center,
             style: TextStyle(

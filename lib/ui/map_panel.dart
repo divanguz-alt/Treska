@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -59,14 +60,24 @@ class MapPanel extends StatefulWidget {
     return 14;
   }
 
-  /// Moves [point] south by half of [hiddenPx] so it renders at the centre of
-  /// the visible map area rather than the centre of the widget.
+  /// Moves [point] south so it renders at the centre of the visible map strip.
   ///
-  /// The map fills the whole screen but the sheet hides its lower part, so a
-  /// user centred on the widget's geometric middle would sit behind the sheet.
+  /// The map fills the whole screen but the sheet hides its lower part and the
+  /// search bar + live chip hide its top. The strip that is actually visible
+  /// runs from [topInsetPx] to `height - hiddenPx`, so its centre is
+  /// `(topInsetPx + height - hiddenPx) / 2`. The camera has to move south by
+  /// `(hiddenPx - topInsetPx) / 2` to put the point there. With the sheet fully
+  /// collapsed ([hiddenPx] = 0) the point stays at the geometric centre.
+  ///
   /// Static and pure so the projection maths is unit-testable.
-  static LatLng shiftForSheet(LatLng point, double zoom, double hiddenPx) {
-    final shiftPx = hiddenPx / 2;
+  static LatLng shiftForSheet(
+    LatLng point,
+    double zoom,
+    double hiddenPx, {
+    double topInsetPx = 0,
+  }) {
+    if (hiddenPx <= 0) return point;
+    final shiftPx = (hiddenPx - topInsetPx) / 2;
     if (shiftPx <= 0) return point;
 
     // Web-Mercator: pixels per degree at this zoom and latitude. One world is
@@ -98,6 +109,7 @@ class _MapPanelState extends State<MapPanel> {
   List<CircleMarker> _stopCircles = const [];
   int _circlesMode = -1;
   Brightness? _circlesBrightness;
+  Set<String> _circlesFavorites = const {};
 
   int _tileErrors = 0;
   bool _tilesFailed = false;
@@ -200,12 +212,20 @@ class _MapPanelState extends State<MapPanel> {
     _map.move(_shiftForSheet(target, zoom), zoom, id: 'move_${_moveId++}');
   }
 
-  /// Moves [point] south by half the sheet height, so it renders at the centre
-  /// of the visible map area rather than the centre of the widget.
+  /// Moves [point] south so it renders at the centre of the visible map strip
+  /// between the search/live UI and the top of the sheet.
   LatLng _shiftForSheet(LatLng point, double zoom) {
-    // Use the actual bottom inset from widget - when sheet is collapsed this is 0
     final hidden = widget.bottomInsetPx;
-    return MapPanel.shiftForSheet(point, zoom, hidden);
+    if (hidden <= 0) return point;
+    // Bottom of the search bar (56) + gap (10) + live chip (32), below the
+    // status bar. Must match the layout in build().
+    final top = MediaQuery.of(context).padding.top + 106;
+    return MapPanel.shiftForSheet(
+      point,
+      zoom,
+      hidden,
+      topInsetPx: top,
+    );
   }
 
   void _zoom(double delta) {
@@ -289,16 +309,19 @@ class _MapPanelState extends State<MapPanel> {
   List<CircleMarker> _circlesFor(
       BuildContext context, List<StopInfo> all, int mode) {
     final brightness = Theme.of(context).brightness;
+    final favorites = widget.settings.favorites;
     if (_circlesMode == mode &&
         _circlesBrightness == brightness &&
+        setEquals(_circlesFavorites, favorites) &&
         _stopCircles.isNotEmpty) {
       return _stopCircles;
     }
     final colors = context.zet;
     // Handoff: idle stop is a 12 dp disc — surface fill with an ink2 ring.
+    // Favourites are drawn as stars on top instead, so skip their disc.
     _stopCircles = [
       for (final s in all)
-        if (s.serves(mode))
+        if (s.serves(mode) && !favorites.contains(s.id))
           CircleMarker(
             point: LatLng(s.lat, s.lon),
             radius: 5.5,
@@ -310,6 +333,7 @@ class _MapPanelState extends State<MapPanel> {
     ];
     _circlesMode = mode;
     _circlesBrightness = brightness;
+    _circlesFavorites = Set<String>.of(favorites);
     return _stopCircles;
   }
 
@@ -410,6 +434,31 @@ class _MapPanelState extends State<MapPanel> {
                         borderStrokeWidth: 2.5,
                       ),
                     ]),
+                  // Favourite stops are stars instead of discs, so the saved
+                  // places are recognisable at a glance. Tapping one selects it
+                  // in the board just like tapping its disc would.
+                  MarkerLayer(
+                    markers: [
+                      for (final s in widget.feed.stops.value)
+                        if (widget.settings.isFavorite(s.id))
+                          Marker(
+                            point: LatLng(s.lat, s.lon),
+                            width: 40,
+                            height: 40,
+                            alignment: Alignment.center,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {
+                                _focusStop(s.id);
+                                widget.onStopSelected(s.id);
+                              },
+                              child: _FavoriteStar(
+                                selected: s.id == widget.selectedStopId,
+                              ),
+                            ),
+                          ),
+                    ],
+                  ),
                   // Route of the tapped vehicle, drawn under the badges.
                   if (selectedShape != null)
                     PolylineLayer(polylines: [
@@ -729,6 +778,33 @@ class _TileErrorChip extends StatelessWidget {
             Icon(Icons.refresh, size: 14, color: colors.danger),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A favourite stop on the map. Deliberately a star, not a disc, so it reads as
+/// a saved place rather than an ordinary stop.
+class _FavoriteStar extends StatelessWidget {
+  final bool selected;
+  const _FavoriteStar({required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    return Center(
+      child: Icon(
+        Icons.star_rounded,
+        size: selected ? 30 : 26,
+        color: colors.primary,
+        shadows: [
+          Shadow(color: colors.bg, blurRadius: 4),
+          Shadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
     );
   }
