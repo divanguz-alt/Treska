@@ -13,11 +13,16 @@ class StopHeader extends StatelessWidget {
   final SettingsController settings;
   final VoidCallback? onToggleFavourite;
 
+  /// All stops by id, so a star saved on another platform of this stop still
+  /// counts. Empty means "compare ids only".
+  final Map<String, StopInfo> stopById;
+
   const StopHeader({
     super.key,
     required this.stop,
     required this.settings,
     this.onToggleFavourite,
+    this.stopById = const {},
   });
 
   @override
@@ -29,7 +34,7 @@ class StopHeader extends StatelessWidget {
       builder: (context, _) {
         final colors = context.zet;
         final walkMin = (stop.distanceM / 80).round().clamp(1, 99);
-        final favourite = settings.isFavorite(stop.stop.id);
+        final favourite = settings.isFavoriteStop(stop.stop, stopById);
 
         return Padding(
           // Handoff: `padding: 0 12px 10px 24px` — the stop name lines up with
@@ -81,8 +86,8 @@ class StopHeader extends StatelessWidget {
                 tooltip: favourite ? 'Ukloni iz spremljenih' : 'Spremi stanicu',
                 onPressed: onToggleFavourite ??
                     () {
-                      final wasFavorite = settings.isFavorite(stop.stop.id);
-                      settings.toggleFavorite(stop.stop.id);
+                      final wasFavorite = favourite;
+                      settings.toggleFavoriteStop(stop.stop, stopById);
                       ScaffoldMessenger.of(context)
                         ..hideCurrentSnackBar()
                         ..showSnackBar(

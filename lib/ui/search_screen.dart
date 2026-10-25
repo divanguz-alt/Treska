@@ -19,28 +19,12 @@ Future<String?> showStopSearch(
   required FeedController feed,
   required SettingsController settings,
 }) {
+  // The platform page transition, like Settings. The old custom fade drew the
+  // half-transparent results list over the live map for a quarter second,
+  // which read as a page that failed to load.
   return Navigator.of(context).push(
-    PageRouteBuilder<String>(
-      opaque: true,
-      transitionDuration: ZetMotion.quick,
-      transitionsBuilder: (context, animation, _, child) {
-        final curved = CurvedAnimation(
-          parent: animation,
-          curve: ZetMotion.emphasized,
-        );
-        return FadeTransition(
-          opacity: curved,
-          child: SlideTransition(
-            position: Tween(
-              begin: const Offset(0, 0.06),
-              end: Offset.zero,
-            ).animate(curved),
-            child: child,
-          ),
-        );
-      },
-      pageBuilder: (context, _, _) =>
-          _SearchScreen(feed: feed, settings: settings),
+    MaterialPageRoute<String>(
+      builder: (context) => _SearchScreen(feed: feed, settings: settings),
     ),
   );
 }
@@ -94,20 +78,37 @@ class _SearchScreenState extends State<_SearchScreen> {
                   widget.feed.stops,
                   widget.feed.snapshot,
                   widget.feed.position,
+                  widget.settings,
                 ]),
                 builder: (context, _) {
                   final results = _results();
                   final nearby = _text.trim().isEmpty;
+                  final favorites = nearby ? _favorites() : const <_SearchResult>[];
+                  final gps = widget.feed.position.value.gps;
 
                   return ListView(
                     padding: const EdgeInsets.only(bottom: ZetSpace.sheet),
                     children: [
+                      if (favorites.isNotEmpty) ...[
+                        _SectionLabel('Spremljene', color: colors.primary),
+                        for (final r in favorites)
+                          _StopResult(
+                            stop: r.stop,
+                            distanceM: r.distanceM,
+                            lines: r.lines,
+                            favorite: true,
+                            onTap: () => Navigator.of(context).pop(r.stop.id),
+                          ),
+                        const SizedBox(height: ZetSpace.md),
+                      ],
                       Padding(
                         padding: const EdgeInsets.fromLTRB(
                             ZetSpace.sheet, 0, ZetSpace.sheet, ZetSpace.sm),
                         child: Text(
                           nearby
-                              ? 'Stanice u blizini'
+                              ? (gps
+                                  ? 'Stanice u blizini'
+                                  : 'Stanice u blizini centra (nema GPS-a)')
                               : 'Rezultati (${results.length})',
                           style: TextStyle(
                             fontSize: 14,
@@ -157,40 +158,85 @@ class _SearchScreenState extends State<_SearchScreen> {
     Navigator.of(context).pop(results.first.stop.id);
   }
 
-  List<_SearchResult> _results() {    final pos = widget.feed.position.value;
-    final all = widget.feed.stops.value;
+  /// Lines currently on the board per stop (group), so a number search can
+  /// name the stop's lines without a second lookup.
+  Map<String, Set<String>> _linesByGroup() {
     final snapshot = widget.feed.snapshot.value;
-    final q = _normalize(_text.trim());
-
-    // Lines currently on the board, so a number search can name the stop's
-    // lines without a second lookup.
-    final linesByStop = <String, Set<String>>{};
+    final out = <String, Set<String>>{};
     for (final stop in [
       ...?snapshot?.tramStops,
       ...?snapshot?.busStops,
+      ...?snapshot?.pinnedStops,
     ]) {
-      linesByStop.putIfAbsent(stop.stop.id, () => <String>{}).addAll(
-        stop.arrivals.map((a) => a.routeShortName),
-      );
+      out.putIfAbsent(stopGroupKey(stop.stop.name), () => <String>{}).addAll(
+            stop.arrivals.map((a) => a.routeShortName),
+          );
     }
+    return out;
+  }
 
+  List<_SearchResult> _results() {
+    final pos = widget.feed.position.value;
+    final all = widget.feed.stops.value;
+    final q = _normalize(_text.trim());
+    final linesByGroup = _linesByGroup();
+
+    // Distance always comes from the current position. Without a GPS fix that
+    // is the city-centre fallback, which still orders results sensibly; the
+    // old "infinity without GPS" left the list in file order (eleven
+    // „Črnomerec“ rows as "nearby").
     final scored = <_SearchResult>[];
     for (final s in all) {
       final name = _normalize(s.name);
-      final lines = linesByStop[s.id] ?? const <String>{};
+      final lines = linesByGroup[stopGroupKey(s.name)] ?? const <String>{};
       final lineMatch = q.isNotEmpty &&
           lines.any((l) => _normalize(l).startsWith(q));
 
       if (q.isNotEmpty && !name.contains(q) && !lineMatch) continue;
 
-      final distance = (pos.gps)
-          ? haversineM(pos.lat, pos.lon, s.lat, s.lon)
-          : double.infinity;
-      scored.add(_SearchResult(stop: s, distanceM: distance, lines: lines));
+      final distance = haversineM(pos.lat, pos.lon, s.lat, s.lon);
+      scored.add(_SearchResult(
+        stop: s,
+        distanceM: distance,
+        lines: lines,
+        // Names that start with the query beat names that merely contain it.
+        rank: q.isEmpty || name.startsWith(q) ? 0 : 1,
+      ));
     }
 
-    scored.sort((a, b) => a.distanceM.compareTo(b.distanceM));
-    return scored.take(q.isEmpty ? 12 : 40).toList(growable: false);
+    scored.sort((a, b) {
+      if (a.rank != b.rank) return a.rank - b.rank;
+      return a.distanceM.compareTo(b.distanceM);
+    });
+
+    // One row per stop: its platforms share a name and sit next to each other,
+    // and picking any of them opens the same merged board.
+    final out = <_SearchResult>[];
+    for (final r in scored) {
+      if (out.any((o) => sameStopGroup(o.stop, r.stop))) continue;
+      out.add(r);
+      if (out.length >= (q.isEmpty ? 12 : 40)) break;
+    }
+    return out;
+  }
+
+  List<_SearchResult> _favorites() {
+    final pos = widget.feed.position.value;
+    final stopById = widget.feed.stopById;
+    final linesByGroup = _linesByGroup();
+    final out = <_SearchResult>[];
+    for (final id in widget.settings.favorites) {
+      final s = stopById[id];
+      if (s == null) continue;
+      if (out.any((o) => sameStopGroup(o.stop, s))) continue;
+      out.add(_SearchResult(
+        stop: s,
+        distanceM: haversineM(pos.lat, pos.lon, s.lat, s.lon),
+        lines: linesByGroup[stopGroupKey(s.name)] ?? const <String>{},
+      ));
+    }
+    out.sort((a, b) => a.distanceM.compareTo(b.distanceM));
+    return out;
   }
 
   /// Lowercase and strip Croatian diacritics so „črnomerec“ matches „Črnomerec“.
@@ -285,11 +331,13 @@ class _SearchResult {
   final StopInfo stop;
   final double distanceM;
   final Set<String> lines;
+  final int rank;
 
   const _SearchResult({
     required this.stop,
     required this.distanceM,
     required this.lines,
+    this.rank = 0,
   });
 }
 
@@ -298,12 +346,14 @@ class _StopResult extends StatelessWidget {
   final double distanceM;
   final Set<String> lines;
   final VoidCallback onTap;
+  final bool favorite;
 
   const _StopResult({
     required this.stop,
     required this.distanceM,
     required this.lines,
     required this.onTap,
+    this.favorite = false,
   });
 
   @override
@@ -322,7 +372,11 @@ class _StopResult extends StatelessWidget {
           color: colors.panel,
           shape: BoxShape.circle,
         ),
-        child: Icon(Icons.location_on, size: 20, color: colors.primary),
+        child: Icon(
+          favorite ? Icons.star_rounded : Icons.location_on,
+          size: 20,
+          color: colors.primary,
+        ),
       ),
       title: Text(
         stop.name,
@@ -354,6 +408,28 @@ class _StopResult extends StatelessWidget {
               ),
             )
           : null,
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  final Color color;
+  const _SectionLabel(this.text, {required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          ZetSpace.sheet, 0, ZetSpace.sheet, ZetSpace.sm),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: color,
+        ),
+      ),
     );
   }
 }

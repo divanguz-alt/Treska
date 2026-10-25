@@ -135,32 +135,24 @@ class UpdateService {
   /// True when [release] is newer than the installed build. The versionCode is
   /// authoritative; the tag/name is only a fallback for old releases without a
   /// numeric tag.
+  ///
+  /// A tag without `+N` (`v2.1.6`) only carries a semver, and the code derived
+  /// from it (20106) lives on a different scale from Android's build number
+  /// (16), so the two are never compared: same semver means "not newer".
   static bool isNewer(ReleaseInfo release, int currentCode, String currentName) {
     final rHasBuild = release.tag.contains('+');
-    final cHasBuild = currentName.contains('+');
-
-    if (rHasBuild && cHasBuild) {
-      return release.versionCode > currentCode;
-    }
 
     final rSem = _semverCode(release.tag);
     final cSem = _semverCode(currentName);
 
-    if (rSem != cSem) {
-      return rSem > cSem;
+    if (rSem >= 0 && cSem >= 0) {
+      if (rSem != cSem) return rSem > cSem;
+      // Same version: only an explicit, higher build number is an update.
+      return rHasBuild && currentCode >= 0 && release.versionCode > currentCode;
     }
 
-    // Same semver: if the online release has no explicit build number,
-    // it refers to the same base release — never treat it as newer than
-    // a locally built/installed version that already has a higher build.
-    if (!rHasBuild && cHasBuild) {
-      return false;
-    }
-    if (rHasBuild && !cHasBuild) {
-      return release.versionCode > currentCode;
-    }
-
-    if (release.versionCode >= 0 && currentCode >= 0) {
+    // The installed name is unknown (tests, odd platforms).
+    if (rHasBuild && currentCode >= 0) {
       return release.versionCode > currentCode;
     }
     return _compareNames(release.tag, currentName) > 0;

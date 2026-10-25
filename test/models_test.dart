@@ -16,6 +16,26 @@ void main() {
     });
   });
 
+  group('service day', () {
+    test('schedule origin is local noon minus 12 h', () {
+      final start = serviceDayStart(DateTime(2026, 10, 22, 17, 30));
+      expect(start.add(const Duration(hours: 12)), DateTime(2026, 10, 22, 12));
+    });
+
+    test('a DST change day is not anchored at local midnight', () {
+      // 25 Oct 2026 is the end of summer time in Europe. Only meaningful when
+      // the test machine's zone observes it (CI may run in UTC).
+      final dstDay = DateTime(2026, 10, 25, 12).timeZoneOffset !=
+          DateTime(2026, 10, 24, 12).timeZoneOffset;
+      final start = serviceDayStart(DateTime(2026, 10, 25, 8));
+      final midnight = DateTime(2026, 10, 25);
+      expect(
+        start.difference(midnight).inMinutes.abs(),
+        dstDay ? 60 : 0,
+      );
+    });
+  });
+
   group('arrival countdown', () {
     final now = DateTime(2026, 10, 22, 17, 30, 0);
 

@@ -11,6 +11,8 @@ Future<void> showDiagnostics(BuildContext context, FeedController feed) {
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
+    // Keep the handle and title clear of the status bar.
+    useSafeArea: true,
     builder: (context) => _DiagnosticsSheet(feed: feed),
   );
 }

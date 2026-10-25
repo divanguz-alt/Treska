@@ -67,13 +67,46 @@ class BoardPanel extends StatelessWidget {
             break;
           }
         }
-        selected ??= nearby.isNotEmpty ? nearby.first : null;
+        // Search and the map hand over a platform id; the nearby list names a
+        // stop after its closest platform. Same stop, different id — match the
+        // group so the board does not show the stop twice.
+        final selectedInfo =
+            selectedStopId == null ? null : feed.stopById[selectedStopId];
+        if (selected == null && selectedInfo != null) {
+          for (final s in nearby) {
+            if (sameStopGroup(s.stop, selectedInfo)) {
+              selected = s;
+              break;
+            }
+          }
+        }
+        if (selectedStopId == null) {
+          selected ??= nearby.isNotEmpty ? nearby.first : null;
+        }
 
-        // A stop picked in search can sit outside the nearby radius. Show its
-        // header and an honest "no departures in range" body rather than
-        // silently snapping back to the nearest stop.
+        // A stop picked in search, on the map or among the favourites can sit
+        // outside the nearby radius. The worker computes a board for it anyway
+        // (pinned stops); show that board, filtered to the current mode.
         NearbyStop? outside;
-        if (selected == null && selectedStopId != null) {
+        if (selected == null && selectedStopId != null && !loading) {
+          for (final p in snapshot.pinnedStops) {
+            if (p.stop.id != selectedStopId) continue;
+            final routeType = mode == kModeTram ? kRouteTypeTram : kRouteTypeBus;
+            outside = NearbyStop(
+              stop: p.stop,
+              distanceM: p.distanceM,
+              arrivals: [
+                for (final a in p.arrivals)
+                  if (a.routeType == routeType) a,
+              ],
+            );
+            break;
+          }
+        }
+        // Not computed yet (the first refresh after picking it is in flight):
+        // show its header with an empty body rather than snapping back to the
+        // nearest stop.
+        if (selected == null && outside == null && selectedStopId != null) {
           for (final s in feed.stops.value) {
             if (s.id != selectedStopId) continue;
             final pos = feed.position.value;
@@ -200,7 +233,11 @@ class _BoardScroll extends StatelessWidget {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.only(top: ZetSpace.sm),
-                  child: StopHeader(stop: stop!, settings: settings),
+                  child: StopHeader(
+                    stop: stop!,
+                    settings: settings,
+                    stopById: feed.stopById,
+                  ),
                 ),
               ),
               SliverToBoxAdapter(

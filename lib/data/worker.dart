@@ -38,7 +38,15 @@ class WorkerRefresh {
   /// Nearby-stop radius in metres (400 / 800 / 1200, chosen in Settings).
   final double radiusM;
 
-  const WorkerRefresh(this.lat, this.lon, {this.radiusM = 800});
+  /// Stop ids that need a board regardless of distance (selected, favourites).
+  final List<String> pinnedStopIds;
+
+  const WorkerRefresh(
+    this.lat,
+    this.lon, {
+    this.radiusM = 800,
+    this.pinnedStopIds = const [],
+  });
 }
 
 class WorkerInvalidateStatic {
@@ -395,6 +403,7 @@ void zetWorkerMain(SendPort handshake) {
         lat: message.lat,
         lon: message.lon,
         radiusM: message.radiusM,
+        pinnedStopIds: message.pinnedStopIds.toSet(),
         rtBytes: rtBytes,
         rtFeed: pushed ? lastWireFeed : null,
         now: DateTime.now(),

@@ -77,6 +77,11 @@ class FeedEngine {
 
   final Map<String, List<_PrevPos>> _prevByRoute = {};
 
+  /// [stopGroupKey] per static stop, computed once.
+  late final List<String> _groupKeys = [
+    for (final s in data.stops) stopGroupKey(s.name),
+  ];
+
   FeedEngine(this.data);
 
   static const double searchRadiusM = 800;
@@ -92,13 +97,14 @@ class FeedEngine {
     required DateTime now,
     RtFeed? rtFeed,
     double radiusM = searchRadiusM,
+    Set<String> pinnedStopIds = const {},
   }) {
     final sw = Stopwatch()..start();
 
     final nowUnix = now.millisecondsSinceEpoch ~/ 1000;
-    final midnight = DateTime(now.year, now.month, now.day);
+    final midnight = serviceDayStart(now);
     final midnightUnix = midnight.millisecondsSinceEpoch ~/ 1000;
-    final nowSec = now.hour * 3600 + now.minute * 60 + now.second;
+    final nowSec = nowUnix - midnightUnix;
 
     // ── Candidate stops around the user ────────────────────────────────────
     final candidates = <_CandidateStop>[];
@@ -112,6 +118,37 @@ class FeedEngine {
     final candidateByStop = <int, _CandidateStop>{
       for (final c in candidates) c.stopIdx: c,
     };
+
+    // Stops the UI pinned (the selected stop, favourites) get a board even
+    // outside the radius. All platforms of the pinned stop join the candidate
+    // pool so realtime and timetable rows are collected exactly as for nearby
+    // stops, but only the nearby candidates feed tramStops/busStops.
+    final nearbyCount = candidates.length;
+    final pinnedGroups = <String, List<_CandidateStop>>{};
+    for (final id in pinnedStopIds) {
+      final anchorIdx = data.stopIdx[id];
+      if (anchorIdx == null) continue;
+      final anchor = data.stops[anchorIdx];
+      final key = _groupKeys[anchorIdx];
+      final group = <_CandidateStop>[];
+      for (var i = 0; i < data.stops.length; i++) {
+        if (_groupKeys[i] != key) continue;
+        final s = data.stops[i];
+        if (i != anchorIdx &&
+            haversineM(anchor.lat, anchor.lon, s.lat, s.lon) >
+                kStopGroupRadiusM) {
+          continue;
+        }
+        var c = candidateByStop[i];
+        if (c == null) {
+          c = _CandidateStop(i, haversineM(lat, lon, s.lat, s.lon));
+          candidateByStop[i] = c;
+          candidates.add(c);
+        }
+        group.add(c);
+      }
+      pinnedGroups[id] = group;
+    }
 
     // ── Realtime feeds ─────────────────────────────────────────────────────
     // Two sources can be present at once and they complement each other:
@@ -404,8 +441,31 @@ class FeedEngine {
       c.arrivals.sort((a, b) => a.time.compareTo(b.time));
     }
 
-    final tramStops = _mergeForMode(candidates, kRouteTypeTram);
-    final busStops = _mergeForMode(candidates, kRouteTypeBus);
+    final nearby = candidates.sublist(0, nearbyCount);
+    final tramStops = _mergeForMode(nearby, kRouteTypeTram);
+    final busStops = _mergeForMode(nearby, kRouteTypeBus);
+
+    final pinnedStops = <NearbyStop>[];
+    for (final entry in pinnedGroups.entries) {
+      final anchorIdx = data.stopIdx[entry.key]!;
+      final anchor = data.stops[anchorIdx];
+      final box = _MergeBox(
+        anchorIdx,
+        haversineM(lat, lon, anchor.lat, anchor.lon),
+      );
+      for (final c in entry.value) {
+        box.arrivals.addAll(c.arrivals);
+      }
+      // Both modes share one list here, so allow twice the per-stop budget.
+      pinnedStops.add(
+        _finishBox(box, maxArrivals: maxArrivalsPerStop * 2) ??
+            NearbyStop(
+              stop: _stopInfo(anchorIdx),
+              distanceM: box.distanceM,
+              arrivals: const [],
+            ),
+      );
+    }
 
     final vehicleCount = vehicles.length;
     final tramVehicles = vehicles.where((v) => v.isTram).length;
@@ -441,6 +501,18 @@ class FeedEngine {
       updatedAt: now,
       error: error,
       radiusM: radiusM,
+      pinnedStops: pinnedStops,
+    );
+  }
+
+  StopInfo _stopInfo(int stopIdx) {
+    final stop = data.stops[stopIdx];
+    return StopInfo(
+      id: stop.stopId,
+      name: stop.name,
+      lat: stop.lat,
+      lon: stop.lon,
+      modes: stop.modes,
     );
   }
 
@@ -495,8 +567,7 @@ class FeedEngine {
           c.arrivals.where((a) => a.routeType == routeType).toList();
       if (arrivals.isEmpty) continue;
 
-      final stop = data.stops[c.stopIdx];
-      final key = _normalizeName(stop.name);
+      final key = _groupKeys[c.stopIdx];
       final box = groups[key];
       if (box == null) {
         order.add(key);
@@ -514,70 +585,68 @@ class FeedEngine {
     final out = <NearbyStop>[];
     for (final key in order) {
       if (out.length >= maxStopsPerMode) break;
-      final box = groups[key]!;
-
-      // A realtime row supersedes the scheduled row of the same trip. We do not
-      // know the trip id of a scheduled row after the merge, so match on
-      // route+headsign and closeness in time (3 min). Later departures of the
-      // same route are kept — they are different vehicles.
-      final rtTimes = <String, List<int>>{};
-      for (final a in box.arrivals) {
-        if (!a.realtime) continue;
-        (rtTimes['${a.route}|${a.headsign}'] ??= <int>[])
-            .add(a.time.millisecondsSinceEpoch ~/ 1000);
-      }
-      if (rtTimes.isNotEmpty) {
-        box.arrivals.removeWhere((a) {
-          if (a.realtime) return false;
-          final times = rtTimes['${a.route}|${a.headsign}'];
-          if (times == null) return false;
-          final t = a.time.millisecondsSinceEpoch ~/ 1000;
-          for (final rt in times) {
-            if ((rt - t).abs() <= 180) return true;
-          }
-          return false;
-        });
-      }
-
-      box.arrivals.sort((a, b) => a.time.compareTo(b.time));
-      final limited = _limitArrivals(box.arrivals);
-      if (limited.isEmpty) continue;
-      final stop = data.stops[box.stopIdx];
-      out.add(NearbyStop(
-        stop: StopInfo(
-          id: stop.stopId,
-          name: stop.name,
-          lat: stop.lat,
-          lon: stop.lon,
-          modes: stop.modes,
-        ),
-        distanceM: box.distanceM,
-        arrivals: [
-          for (final a in limited)
-            Arrival(
-              routeShortName: a.route,
-              headsign: a.headsign,
-              time: a.time,
-              source: a.realtime
-                  ? ArrivalSource.realtime
-                  : (a.estimated
-                      ? ArrivalSource.estimated
-                      : ArrivalSource.scheduled),
-              routeType: a.routeType,
-              delaySec: a.delaySec,
-            ),
-        ],
-      ));
+      final stop = _finishBox(groups[key]!);
+      if (stop != null) out.add(stop);
     }
     return out;
   }
 
-  static List<_Arr> _limitArrivals(List<_Arr> sorted) {
+  /// Dedupes, sorts and limits a merged stop's rows; null when none are left.
+  NearbyStop? _finishBox(_MergeBox box, {int maxArrivals = maxArrivalsPerStop}) {
+    // A realtime row supersedes the scheduled row of the same trip. We do not
+    // know the trip id of a scheduled row after the merge, so match on
+    // route+headsign and closeness in time (3 min). Later departures of the
+    // same route are kept — they are different vehicles.
+    final rtTimes = <String, List<int>>{};
+    for (final a in box.arrivals) {
+      if (!a.realtime) continue;
+      (rtTimes['${a.route}|${a.headsign}'] ??= <int>[])
+          .add(a.time.millisecondsSinceEpoch ~/ 1000);
+    }
+    if (rtTimes.isNotEmpty) {
+      box.arrivals.removeWhere((a) {
+        if (a.realtime) return false;
+        final times = rtTimes['${a.route}|${a.headsign}'];
+        if (times == null) return false;
+        final t = a.time.millisecondsSinceEpoch ~/ 1000;
+        for (final rt in times) {
+          if ((rt - t).abs() <= 180) return true;
+        }
+        return false;
+      });
+    }
+
+    box.arrivals.sort((a, b) => a.time.compareTo(b.time));
+    final limited = _limitArrivals(box.arrivals, maxArrivals);
+    if (limited.isEmpty) return null;
+    return NearbyStop(
+      stop: _stopInfo(box.stopIdx),
+      distanceM: box.distanceM,
+      arrivals: [
+        for (final a in limited)
+          Arrival(
+            routeShortName: a.route,
+            headsign: a.headsign,
+            time: a.time,
+            source: a.realtime
+                ? ArrivalSource.realtime
+                : (a.estimated
+                    ? ArrivalSource.estimated
+                    : ArrivalSource.scheduled),
+            routeType: a.routeType,
+            delaySec: a.delaySec,
+          ),
+      ],
+    );
+  }
+
+  static List<_Arr> _limitArrivals(List<_Arr> sorted,
+      [int maxArrivals = maxArrivalsPerStop]) {
     final seen = <String>{};
     final perRouteHeadsign = <String, int>{};
     final out = <_Arr>[];
     for (final a in sorted) {
-      if (out.length >= maxArrivalsPerStop) break;
+      if (out.length >= maxArrivals) break;
       final exact = '${a.route}|${a.time.millisecondsSinceEpoch}';
       if (!seen.add(exact)) continue;
       final key = '${a.route}|${a.headsign}';
@@ -589,8 +658,6 @@ class FeedEngine {
     return out;
   }
 
-  static String _normalizeName(String name) =>
-      name.trim().toUpperCase().replaceAll(RegExp(r'\s+'), ' ');
 
   /// Folds the protobuf predictions and the streamed vehicle fixes into one
   /// feed. Streamed entities win for positions (newest fix) and contribute a
@@ -674,9 +741,8 @@ class FeedEngine {
     final deps = data.departures[fromStop];
     if (deps.arrivalSec.isEmpty) return null;
 
-    final midnight = DateTime(now.year, now.month, now.day);
-    final midnightUnix = midnight.millisecondsSinceEpoch;
-    final nowSec = now.hour * 3600 + now.minute * 60 + now.second;
+    final midnightUnix = serviceDayStart(now).millisecondsSinceEpoch;
+    final nowSec = (now.millisecondsSinceEpoch - midnightUnix) ~/ 1000;
 
     // Seconds-of-day the caller asked to start from.
     final afterSec =

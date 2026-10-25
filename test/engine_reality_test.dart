@@ -14,7 +14,7 @@ import 'package:zet2/data/wire_feed.dart';
 /// Runs the production engine against a real ZET static feed and a real relay
 /// frame captured from wss://zet.skoljka.org. Not part of the normal test run:
 /// it needs ~19 MB of fixtures. Run with:
-///   flutter test --tags reality test/engine_reality_test.dart
+///   flutter test --tags reality --run-skipped test/engine_reality_test.dart
 void main() {
   test('engine vehicle count matches the relay frame', () async {
     final zipFile = File('/private/var/folders/qz/p0jys3n54v52bgv7w2bxkf080000gn/T/opencode/gtfs.zip');

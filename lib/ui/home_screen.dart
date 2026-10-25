@@ -79,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen>
     )..repeat();
     _pulseCurve = CurvedAnimation(parent: _pulse, curve: Curves.easeOut);
     widget.settings.addListener(_onRadius);
+    _syncPinned();
   }
 
   @override
@@ -104,7 +105,33 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
-  void _onRadius() => widget.feed.setRadius(widget.settings.radiusM);
+  void _onRadius() {
+    widget.feed.setRadius(widget.settings.radiusM);
+    _syncPinned();
+  }
+
+  /// The worker computes boards for these even outside the nearby radius, so a
+  /// stop picked far away (search, map star, favourite) still has departures.
+  void _syncPinned() {
+    widget.feed.setPinnedStops({
+      ...widget.settings.favorites,
+      ?_selectedStopId,
+    });
+  }
+
+  void _setMode(int mode) {
+    if (mode == _mode) return;
+    setState(() {
+      _mode = mode;
+      // A stop that has nothing of the new mode would leave an empty board;
+      // fall back to the nearest stop of that mode instead.
+      final selected = _selectedStopId == null
+          ? null
+          : widget.feed.stopById[_selectedStopId];
+      if (selected != null && !selected.serves(mode)) _selectedStopId = null;
+    });
+    _syncPinned();
+  }
 
   /// Snap points for the current screen. The collapsed sheet is 0, so a
   /// downward drag can hand the whole screen to the map.
@@ -140,6 +167,7 @@ class _HomeScreenState extends State<HomeScreen>
       _selectedStopId = id;
       _mode = mode;
     });
+    _syncPinned();
     _expandSheet();
   }
 
@@ -222,6 +250,7 @@ class _HomeScreenState extends State<HomeScreen>
                     mode: _mode,
                     sheetFraction: sheetSize,
                     bottomInsetPx: sheetSize * screen,
+                    restingInsetPx: fractions.half * screen,
                     selectedStopId: _selectedStopId,
                     onStopSelected: _selectStop,
                   );
@@ -270,10 +299,7 @@ class _HomeScreenState extends State<HomeScreen>
                   mode: _mode,
                   selectedStopId: _selectedStopId,
                   scrollController: scrollController,
-                  onModeChanged: (mode) {
-                    if (mode == _mode) return;
-                    setState(() => _mode = mode);
-                  },
+                  onModeChanged: _setMode,
                   onStopSelected: _selectStop,
                   onCollapse: _collapseSheet,
                 ),

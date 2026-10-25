@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path_provider/path_provider.dart';
@@ -62,6 +63,19 @@ class FeedController with WidgetsBindingObserver {
   final ValueNotifier<FeedSnapshot?> snapshot = ValueNotifier(null);
   final ValueNotifier<List<Vehicle>> vehicles = ValueNotifier(const []);
   final ValueNotifier<List<StopInfo>> stops = ValueNotifier(const []);
+
+  /// [stops] by id, rebuilt whenever the stop list changes.
+  Map<String, StopInfo> get stopById {
+    final list = stops.value;
+    if (!identical(list, _stopByIdSource)) {
+      _stopByIdSource = list;
+      _stopById = {for (final s in list) s.id: s};
+    }
+    return _stopById;
+  }
+
+  List<StopInfo>? _stopByIdSource;
+  Map<String, StopInfo> _stopById = const {};
   final ValueNotifier<PositionState> position =
       ValueNotifier(PositionState.fallback);
   final ValueNotifier<FeedStatus> status = ValueNotifier(const FeedStatus());
@@ -87,8 +101,31 @@ class FeedController with WidgetsBindingObserver {
   void setRadius(double meters) {
     if (meters == radiusM) return;
     radiusM = meters;
-    _tick();
+    if (_inFlight) {
+      _retickAfterFlight = true;
+    } else {
+      _tick();
+    }
   }
+
+  /// Stops that get a board even outside the radius: the selected stop and the
+  /// favourites. Without this a stop picked in search or on the map shows an
+  /// empty board as soon as it is further away than [radiusM].
+  Set<String> _pinned = const {};
+
+  void setPinnedStops(Set<String> ids) {
+    if (setEquals(ids, _pinned)) return;
+    _pinned = Set.unmodifiable(ids);
+    if (_inFlight) {
+      _retickAfterFlight = true;
+    } else {
+      _tick();
+    }
+  }
+
+  /// Set when an input changed mid-request, so the answer that comes back is
+  /// followed immediately by one that reflects the change.
+  bool _retickAfterFlight = false;
 
   bool get isRunning => _timer != null;
 
@@ -167,6 +204,10 @@ class FeedController with WidgetsBindingObserver {
       final manual = _manual;
       _manual = null;
       if (manual != null && !manual.isCompleted) manual.complete();
+      if (_retickAfterFlight) {
+        _retickAfterFlight = false;
+        _tick();
+      }
       return;
     }
 
@@ -236,7 +277,12 @@ class FeedController with WidgetsBindingObserver {
       }
     }
 
-    _worker!.send(WorkerRefresh(pos.lat, pos.lon, radiusM: radiusM));
+    _worker!.send(WorkerRefresh(
+      pos.lat,
+      pos.lon,
+      radiusM: radiusM,
+      pinnedStopIds: _pinned.toList(growable: false),
+    ));
 
     _requestGuard?.cancel();
     _requestGuard = Timer(_requestTimeout, () {

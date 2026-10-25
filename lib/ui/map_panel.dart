@@ -36,6 +36,11 @@ class MapPanel extends StatefulWidget {
   /// Sheet height in pixels; the map's centre offset and fit padding use it.
   final double bottomInsetPx;
 
+  /// Sheet height once it settles at its default (half) size. Used when a
+  /// stop is focused while the sheet is still hidden or animating open, so the
+  /// stop lands above where the sheet is about to be.
+  final double restingInsetPx;
+
   const MapPanel({
     super.key,
     required this.feed,
@@ -46,6 +51,7 @@ class MapPanel extends StatefulWidget {
     this.selectedStopId,
     this.sheetFraction = 0,
     this.bottomInsetPx = 0,
+    this.restingInsetPx = 0,
   });
 
   /// Starting zoom that keeps the whole nearby radius visible above the sheet.
@@ -106,7 +112,11 @@ class _MapPanelState extends State<MapPanel> {
   bool _centered = false;
   bool _followUser = true;
 
-  List<CircleMarker> _stopCircles = const [];
+  List<CircleMarker<String>> _stopCircles = const [];
+
+  /// Which stop disc a tap landed on (flutter_map's layer hit testing).
+  final LayerHitNotifier<String> _stopHits = ValueNotifier(null);
+  List<StopInfo>? _circlesStops;
   int _circlesMode = -1;
   Brightness? _circlesBrightness;
   Set<String> _circlesFavorites = const {};
@@ -159,6 +169,7 @@ class _MapPanelState extends State<MapPanel> {
   @override
   void dispose() {
     widget.feed.position.removeListener(_onPosition);
+    _stopHits.dispose();
     _map.dispose();
     super.dispose();
   }
@@ -214,36 +225,58 @@ class _MapPanelState extends State<MapPanel> {
 
   /// Moves [point] south so it renders at the centre of the visible map strip
   /// between the search/live UI and the top of the sheet.
-  LatLng _shiftForSheet(LatLng point, double zoom) {
-    final hidden = widget.bottomInsetPx;
+  LatLng _shiftForSheet(LatLng point, double zoom, {double? hiddenPx}) {
+    final hidden = hiddenPx ?? widget.bottomInsetPx;
     if (hidden <= 0) return point;
-    // Bottom of the search bar (56) + gap (10) + live chip (32), below the
-    // status bar. Must match the layout in build().
-    final top = MediaQuery.of(context).padding.top + 106;
     return MapPanel.shiftForSheet(
       point,
       zoom,
       hidden,
-      topInsetPx: top,
+      topInsetPx: _topInsetPx,
     );
   }
+
+  /// Bottom of the search bar (56) + gap (10) + live chip (32), below the
+  /// status bar. Must match the layout in build().
+  double get _topInsetPx => MediaQuery.of(context).padding.top + 106;
 
   void _zoom(double delta) {
     if (!_mapReady) return;
     final camera = _map.camera;
-    final next = (camera.zoom + delta).clamp(11.0, 18.0);
-    // Keep the user in the visible strip when we are following them; otherwise
-    // zoom about whatever the user is looking at.
-    final center = _followUser
-        ? _shiftForSheet(
-            LatLng(
-              widget.feed.position.value.lat,
-              widget.feed.position.value.lon,
-            ),
-            next,
-          )
-        : camera.center;
-    _map.move(center, next, id: 'move_${_moveId++}');
+    final next = (camera.zoom + delta).clamp(11.0, 18.0).toDouble();
+    if (next == camera.zoom) return;
+    if (_followUser) {
+      // Keep the user in the visible strip while following them.
+      _map.move(
+        _shiftForSheet(
+          LatLng(
+            widget.feed.position.value.lat,
+            widget.feed.position.value.lon,
+          ),
+          next,
+        ),
+        next,
+        id: 'move_${_moveId++}',
+      );
+      return;
+    }
+    // Zoom about the middle of the part of the map that is actually visible.
+    // The camera centre is the middle of the whole widget, which sits behind
+    // the sheet, so zooming about it slid the map away from what the user was
+    // looking at.
+    final size = camera.nonRotatedSize;
+    final visibleTop = _topInsetPx.clamp(0.0, size.y);
+    final visibleBottom =
+        (size.y - widget.bottomInsetPx).clamp(visibleTop, size.y);
+    final focus = math.Point<double>(
+      size.x / 2,
+      (visibleTop + visibleBottom) / 2,
+    );
+    _map.move(
+      camera.focusedZoomCenter(focus, next),
+      next,
+      id: 'move_${_moveId++}',
+    );
   }
 
   /// Tapping a badge draws the vehicle's route and leaves it highlighted.
@@ -299,18 +332,34 @@ class _MapPanelState extends State<MapPanel> {
     _clearVehicleSelection();
     if (!_mapReady) return;
     if (_followUser) setState(() => _followUser = false);
+    // The board opens to (at least) its resting height when a stop is picked,
+    // so place the stop above that rather than at the widget's centre, which
+    // the sheet covers.
     _map.move(
-      LatLng(stop.lat, stop.lon),
+      _shiftForSheet(
+        LatLng(stop.lat, stop.lon),
+        16,
+        hiddenPx: math.max(widget.bottomInsetPx, widget.restingInsetPx),
+      ),
       16,
       id: 'move_${_moveId++}',
     );
   }
 
-  List<CircleMarker> _circlesFor(
+  void _onStopDiscTap() {
+    final hit = _stopHits.value;
+    if (hit == null || hit.hitValues.isEmpty) return;
+    final id = hit.hitValues.first;
+    _focusStop(id);
+    widget.onStopSelected(id);
+  }
+
+  List<CircleMarker<String>> _circlesFor(
       BuildContext context, List<StopInfo> all, int mode) {
     final brightness = Theme.of(context).brightness;
     final favorites = widget.settings.favorites;
-    if (_circlesMode == mode &&
+    if (identical(_circlesStops, all) &&
+        _circlesMode == mode &&
         _circlesBrightness == brightness &&
         setEquals(_circlesFavorites, favorites) &&
         _stopCircles.isNotEmpty) {
@@ -322,8 +371,9 @@ class _MapPanelState extends State<MapPanel> {
     _stopCircles = [
       for (final s in all)
         if (s.serves(mode) && !favorites.contains(s.id))
-          CircleMarker(
+          CircleMarker<String>(
             point: LatLng(s.lat, s.lon),
+            hitValue: s.id,
             radius: 5.5,
             useRadiusInMeter: false,
             color: colors.bg.withValues(alpha: 0.85),
@@ -331,6 +381,7 @@ class _MapPanelState extends State<MapPanel> {
             borderStrokeWidth: 1.6,
           ),
     ];
+    _circlesStops = all;
     _circlesMode = mode;
     _circlesBrightness = brightness;
     _circlesFavorites = Set<String>.of(favorites);
@@ -373,6 +424,11 @@ class _MapPanelState extends State<MapPanel> {
               }
               final selectedShape = _selectedShape;
               final selectedVehicle = _selectedVehicle;
+              final stopById = widget.feed.stopById;
+              final favoriteStops = [
+                for (final id in widget.settings.favorites)
+                  if (stopById[id] != null) stopById[id]!,
+              ];
 
               return FlutterMap(
                 mapController: _map,
@@ -419,7 +475,15 @@ class _MapPanelState extends State<MapPanel> {
                       maxNativeZoom: colors.tileMaxNativeZoom,
                       errorTileCallback: (_, _, _) => _onTileError(),
                     ),
-                  CircleLayer(circles: circles),
+                  // Tapping a stop opens its board, like the stars and search.
+                  GestureDetector(
+                    behavior: HitTestBehavior.deferToChild,
+                    onTap: _onStopDiscTap,
+                    child: CircleLayer<String>(
+                      circles: circles,
+                      hitNotifier: _stopHits,
+                    ),
+                  ),
                   // Highlight the stop picked in search or in the board's
                   // picker, so the board and map never disagree about where
                   // "the selected stop" is.
@@ -439,8 +503,7 @@ class _MapPanelState extends State<MapPanel> {
                   // in the board just like tapping its disc would.
                   MarkerLayer(
                     markers: [
-                      for (final s in widget.feed.stops.value)
-                        if (widget.settings.isFavorite(s.id))
+                      for (final s in favoriteStops)
                           Marker(
                             point: LatLng(s.lat, s.lon),
                             width: 40,

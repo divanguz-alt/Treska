@@ -56,6 +56,27 @@ void main() {
       );
     });
 
+    test('installed build number never competes with a semver tag', () {
+      // Regression: 2.1.6 installed (versionCode 16) was offered v2.1.6,
+      // because the tag decoded to 20106.
+      expect(
+        UpdateService.isNewer(_release(tag: 'v2.1.6'), 16, '2.1.6'),
+        isFalse,
+      );
+      expect(
+        UpdateService.isNewer(_release(tag: 'v2.1.7'), 16, '2.1.6'),
+        isTrue,
+      );
+      expect(
+        UpdateService.isNewer(_release(tag: 'v2.1.5'), 16, '2.1.6'),
+        isFalse,
+      );
+      expect(
+        UpdateService.isNewer(_release(tag: 'v2.1.6+17'), 16, '2.1.6'),
+        isTrue,
+      );
+    });
+
     test('falls back to name comparison when the tag has no numbers', () {
       // Realistic only when the running build could not report a versionCode.
       expect(

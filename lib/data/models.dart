@@ -30,6 +30,21 @@ class StopInfo {
   bool serves(int mode) => (modes & mode) != 0;
 }
 
+/// Name key that platforms of one stop share ("Draškovićeva" has several
+/// stop ids, one per platform/direction).
+String stopGroupKey(String name) =>
+    name.trim().toUpperCase().replaceAll(RegExp(r'\s+'), ' ');
+
+/// Platforms of the same stop: same name and close together. The distance cap
+/// keeps unrelated stops that merely share a name in other parts of the city
+/// apart.
+const double kStopGroupRadiusM = 400;
+
+bool sameStopGroup(StopInfo a, StopInfo b) =>
+    a.id == b.id ||
+    (stopGroupKey(a.name) == stopGroupKey(b.name) &&
+        haversineM(a.lat, a.lon, b.lat, b.lon) <= kStopGroupRadiusM);
+
 class StopInfoList {
   final List<StopInfo> stops;
   const StopInfoList(this.stops);
@@ -294,9 +309,15 @@ class FeedSnapshot {
   /// from this so the ring always matches the list.
   final double radiusM;
 
+  /// Boards for stops the UI asked for explicitly (the selected stop and the
+  /// favourites), whether or not they are inside [radiusM]. Each carries the
+  /// requested stop id and arrivals of every mode; the board filters by mode.
+  final List<NearbyStop> pinnedStops;
+
   const FeedSnapshot({
     this.tramStops = const [],
     this.busStops = const [],
+    this.pinnedStops = const [],
     this.vehicles = const [],
     this.estimatedVehicles = const [],
     this.stats = const FeedStats(),
@@ -314,10 +335,12 @@ class FeedSnapshot {
     DateTime? updatedAt,
     String? error,
     double? radiusM,
+    List<NearbyStop>? pinnedStops,
   }) {
     return FeedSnapshot(
       tramStops: tramStops ?? this.tramStops,
       busStops: busStops ?? this.busStops,
+      pinnedStops: pinnedStops ?? this.pinnedStops,
       vehicles: vehicles ?? this.vehicles,
       estimatedVehicles: estimatedVehicles ?? this.estimatedVehicles,
       stats: stats ?? this.stats,
@@ -354,6 +377,15 @@ double bearingDeg(double lat1, double lon1, double lat2, double lon2) {
 }
 
 // ── Formatting ──────────────────────────────────────────────────────────────
+
+/// Origin of GTFS schedule times for the service day containing [now].
+///
+/// GTFS measures stop times from "noon minus 12 h", not from midnight. The two
+/// agree on ordinary days, but on a DST change day local midnight is an hour
+/// off, and every timetable time computed from it would shift by an hour.
+DateTime serviceDayStart(DateTime now) =>
+    DateTime(now.year, now.month, now.day, 12)
+        .subtract(const Duration(hours: 12));
 
 String two(int n) => n.toString().padLeft(2, '0');
 

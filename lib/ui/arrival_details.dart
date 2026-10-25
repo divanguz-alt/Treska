@@ -20,6 +20,8 @@ Future<void> showArrivalDetails(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    // Keep the handle and title clear of the status bar.
+    useSafeArea: true,
     showDragHandle: true,
     backgroundColor: context.zet.bg,
     builder: (_) => _ArrivalDetails(
