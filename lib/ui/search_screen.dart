@@ -14,7 +14,10 @@ import '../settings_controller.dart';
 ///
 /// Named `showStopSearch` rather than `showSearch` so it never collides with
 /// Material's own `showSearch` when both are imported.
-Future<String?> showStopSearch(
+///
+/// Returns the picked stop and, for a saved favourite, the mode it was saved
+/// in, so a bus favourite opens the bus board even from the tram tab.
+Future<StopPick?> showStopSearch(
   BuildContext context, {
   required FeedController feed,
   required SettingsController settings,
@@ -23,7 +26,7 @@ Future<String?> showStopSearch(
   // half-transparent results list over the live map for a quarter second,
   // which read as a page that failed to load.
   return Navigator.of(context).push(
-    MaterialPageRoute<String>(
+    MaterialPageRoute<StopPick>(
       builder: (context) => _SearchScreen(feed: feed, settings: settings),
     ),
   );
@@ -99,7 +102,8 @@ class _SearchScreenState extends State<_SearchScreen> {
                             favorite: true,
                             modeLabel:
                                 r.mode == kModeTram ? 'Tramvaj' : 'Autobus',
-                            onTap: () => Navigator.of(context).pop(r.stop.id),
+                            onTap: () => Navigator.of(context)
+                                .pop((id: r.stop.id, mode: r.mode)),
                           ),
                         const SizedBox(height: ZetSpace.md),
                       ],
@@ -139,7 +143,8 @@ class _SearchScreenState extends State<_SearchScreen> {
                             stop: r.stop,
                             distanceM: r.distanceM,
                             lines: r.lines,
-                            onTap: () => Navigator.of(context).pop(r.stop.id),
+                            onTap: () => Navigator.of(context)
+                                .pop((id: r.stop.id, mode: null)),
                           ),
                     ],
                   );
@@ -157,7 +162,7 @@ class _SearchScreenState extends State<_SearchScreen> {
   void _selectFirst() {
     final results = _results();
     if (results.isEmpty) return;
-    Navigator.of(context).pop(results.first.stop.id);
+    Navigator.of(context).pop((id: results.first.stop.id, mode: null));
   }
 
   /// Lines currently on the board per stop (group), so a number search can

@@ -3,7 +3,8 @@
 // Design goals (this is where ZET 1 spent most of its memory and CPU):
 //   * never materialise stop_times.txt (112 MB) as a String — stream it;
 //   * store per-stop and per-trip rows in Int32List instead of objects/maps;
-//   * filter to the trips that actually run today while parsing;
+//   * filter to the trips that actually run today while parsing, plus
+//     yesterday's trips that are still running after midnight;
 //   * expose O(log n) lookups for the two questions the UI asks:
 //       "what departs from this stop in the next hour?"
 //       "where is this trip right now?"
@@ -68,6 +69,15 @@ class StaticData {
   final Map<String, int> routeIdx;
   final List<String> headsigns;
   final Map<String, int> tripIdx; // only trips active today
+
+  /// Yesterday's trips that run past midnight (GTFS times of 24:00 and later),
+  /// keyed by trip id. Their times are shifted onto today's service day, so a
+  /// 25:10 departure reads 01:10. The same id can be in both maps: ZET reuses
+  /// a service on consecutive weekdays, so the realtime `start_date` decides.
+  final Map<String, int> carryTripIdx;
+
+  /// Yesterday's date as `YYYYMMDD`, the `start_date` of [carryTripIdx] trips.
+  final String carryDate;
   final Int32List tripRoute;
   final Int32List tripHeadsign;
   final List<TripPattern> patterns;
@@ -81,12 +91,31 @@ class StaticData {
     required this.routeIdx,
     required this.headsigns,
     required this.tripIdx,
+    this.carryTripIdx = const {},
+    this.carryDate = '',
     required this.tripRoute,
     required this.tripHeadsign,
     required this.patterns,
     required this.departures,
     required this.parseMs,
   });
+
+  /// Resolves a realtime trip id to a trip index. [startDate] (`YYYYMMDD`
+  /// from the realtime trip descriptor) picks yesterday's run of an id that
+  /// runs on both days; without it, yesterday's run wins while it is still
+  /// within half an hour of its last stop at [nowSec].
+  int? tripFor(String tripId, {String startDate = '', int? nowSec}) {
+    final carry = carryTripIdx[tripId];
+    final today = tripIdx[tripId];
+    if (carry == null) return today;
+    if (today == null) return carry;
+    if (startDate.isNotEmpty) return startDate == carryDate ? carry : today;
+    if (nowSec == null) return today;
+    final dep = patterns[carry].departureSec;
+    return dep.isNotEmpty && nowSec <= dep[dep.length - 1] + 1800
+        ? carry
+        : today;
+  }
 
   /// Index of the pattern position whose stop_sequence equals [sequence],
   /// or -1. Sequences are ascending in a GTFS stop_times row order.
@@ -129,7 +158,14 @@ Future<StaticData> parseStaticZip(String zipPath, DateTime day) async {
   final sw = Stopwatch()..start();
   final zip = await ZipSource.open(zipPath);
   try {
+    // Yesterday's trips with times past 24:00 are still running after
+    // midnight; they join today's index shifted by the length of yesterday's
+    // service day (86 400 s, or ±3 600 s across a DST change).
+    final prevDay = DateTime(day.year, day.month, day.day - 1, 12);
+    final carryShift =
+        serviceDayStart(day).difference(serviceDayStart(prevDay)).inSeconds;
     final activeServices = await _readActiveServices(zip, day);
+    final carryServices = await _readActiveServices(zip, prevDay);
 
     final stopsRaw = await _readText(zip, 'stops.txt');
     final routesRaw = await _readText(zip, 'routes.txt');
@@ -148,28 +184,29 @@ Future<StaticData> parseStaticZip(String zipPath, DateTime day) async {
     final headsigns = <String>[];
     final headsignIdx = <String, int>{};
 
-    final tripIds = <String>[];
     final tripIdxMap = <String, int>{};
-    final tripRouteList = <int>[];
-    final tripHeadsignList = <int>[];
+    final carryIdxMap = <String, int>{};
+    final rawRoute = <int>[];
+    final rawHeadsign = <int>[];
 
     _parseActiveTrips(
       tripsRaw,
       activeServices,
+      carryServices,
       routeIdx,
       headsigns,
       headsignIdx,
-      tripIds,
       tripIdxMap,
-      tripRouteList,
-      tripHeadsignList,
+      carryIdxMap,
+      rawRoute,
+      rawHeadsign,
     );
 
-    final tripCount = tripIds.length;
-    final stopBuilders = List<List<int>?>.filled(tripCount, null);
-    final seqBuilders = List<List<int>?>.filled(tripCount, null);
-    final arrBuilders = List<List<int>?>.filled(tripCount, null);
-    final depBuilders = List<List<int>?>.filled(tripCount, null);
+    final rawCount = rawRoute.length;
+    final rawStops = List<List<int>?>.filled(rawCount, null);
+    final rawSeq = List<List<int>?>.filled(rawCount, null);
+    final rawArr = List<List<int>?>.filled(rawCount, null);
+    final rawDep = List<List<int>?>.filled(rawCount, null);
 
     final entry = zip.entry('stop_times.txt');
     if (entry != null) {
@@ -178,12 +215,42 @@ Future<StaticData> parseStaticZip(String zipPath, DateTime day) async {
         entry,
         stopIdx,
         tripIdxMap,
-        stopBuilders,
-        seqBuilders,
-        arrBuilders,
-        depBuilders,
+        carryIdxMap,
+        carryShift,
+        rawStops,
+        rawSeq,
+        rawArr,
+        rawDep,
       );
     }
+
+    // Drop trips without rows and carried trips that ended before midnight
+    // (most of yesterday), then renumber densely.
+    final carried = <int>{...carryIdxMap.values};
+    final newIndex = Int32List(rawCount)..fillRange(0, rawCount, -1);
+    final kept = <int>[];
+    for (var t = 0; t < rawCount; t++) {
+      final arr = rawArr[t];
+      if (arr == null || arr.isEmpty) continue;
+      if (carried.contains(t) && arr.reduce((a, b) => a > b ? a : b) < 0) {
+        continue;
+      }
+      newIndex[t] = kept.length;
+      kept.add(t);
+    }
+    Map<String, int> renumber(Map<String, int> map) => {
+          for (final e in map.entries)
+            if (newIndex[e.value] >= 0) e.key: newIndex[e.value],
+        };
+    final todayTrips = renumber(tripIdxMap);
+    final carryTrips = renumber(carryIdxMap);
+    final tripCount = kept.length;
+    final tripRouteList = [for (final t in kept) rawRoute[t]];
+    final tripHeadsignList = [for (final t in kept) rawHeadsign[t]];
+    final stopBuilders = [for (final t in kept) rawStops[t]];
+    final seqBuilders = [for (final t in kept) rawSeq[t]];
+    final arrBuilders = [for (final t in kept) rawArr[t]];
+    final depBuilders = [for (final t in kept) rawDep[t]];
 
     // Convert per-trip lists to compact typed arrays.
     final patterns = List<TripPattern>.filled(tripCount, _emptyPattern,
@@ -221,6 +288,8 @@ Future<StaticData> parseStaticZip(String zipPath, DateTime day) async {
 
     // Per-stop departure index. Pack (arrivalSec, tripIdx) into one int so a
     // plain sort keeps the pair aligned; both ranges fit comfortably in 64 bits.
+    // Carried trips have negative times before midnight: the arithmetic shift
+    // below restores the sign and the low 20 bits still hold the trip.
     final perStop = List<List<int>?>.filled(stops.length, null);
     for (var t = 0; t < tripCount; t++) {
       final arr = arrBuilders[t];
@@ -255,7 +324,9 @@ Future<StaticData> parseStaticZip(String zipPath, DateTime day) async {
       routes: routes,
       routeIdx: routeIdx,
       headsigns: headsigns,
-      tripIdx: tripIdxMap,
+      tripIdx: todayTrips,
+      carryTripIdx: carryTrips,
+      carryDate: _yyyymmdd(prevDay),
       tripRoute: Int32List.fromList(tripRouteList),
       tripHeadsign: Int32List.fromList(tripHeadsignList),
       patterns: patterns,
@@ -280,9 +351,8 @@ final _emptyPattern = TripPattern(
 /// worker: only the shapes actually looked at are ever held in memory.
 /// Resolves `trip_id → shape_id` from `trips.txt`, streaming the entry.
 ///
-/// Vehicles in the REST feed carry a trip but no shape id, while the relay
-/// sends both. This lookup lets those vehicles draw the real track instead of a
-/// straight line between stops.
+/// ZET's vehicles carry a trip but no shape id. This lookup lets them draw the
+/// real track instead of a straight line between stops.
 Future<String> readTripShapeId(String zipPath, String tripId) async {
   if (tripId.isEmpty) return '';
   final zip = await ZipSource.open(zipPath);
@@ -488,9 +558,11 @@ Set<String> _activeServices(String calendar, String calendarDates,
 Future<Set<String>> _readActiveServices(ZipSource zip, DateTime day) async {
   final calendar = await _readText(zip, 'calendar.txt');
   final calendarDates = await _readText(zip, 'calendar_dates.txt');
-  final today = '${day.year}${_pad2(day.month)}${_pad2(day.day)}';
-  return _activeServices(calendar, calendarDates, today, day.weekday);
+  return _activeServices(calendar, calendarDates, _yyyymmdd(day), day.weekday);
 }
+
+String _yyyymmdd(DateTime day) =>
+    '${day.year}${_pad2(day.month)}${_pad2(day.day)}';
 
 String _pad2(int v) => v.toString().padLeft(2, '0');
 
@@ -548,14 +620,18 @@ List<RouteRecord> _parseRoutes(String raw) {
   return out;
 }
 
+/// Assigns a trip index to every trip running today ([tripIdxMap]) and,
+/// separately, to every trip of yesterday ([carryIdxMap]); an id running on
+/// both days gets two indices.
 void _parseActiveTrips(
   String raw,
   Set<String> activeServices,
+  Set<String> carryServices,
   Map<String, int> routeIdx,
   List<String> headsigns,
   Map<String, int> headsignIdx,
-  List<String> tripIds,
   Map<String, int> tripIdxMap,
+  Map<String, int> carryIdxMap,
   List<int> tripRouteList,
   List<int> tripHeadsignList,
 ) {
@@ -574,18 +650,20 @@ void _parseActiveTrips(
     if (line.isEmpty) continue;
     final row = csvRow(line);
     if (row.length <= iService || row.length <= iRoute) continue;
-    if (!activeServices.contains(row[iService])) continue;
+    final today = activeServices.contains(row[iService]);
+    final carry = carryServices.contains(row[iService]);
+    if (!today && !carry) continue;
     final route = routeIdx[row[iRoute]];
     if (route == null) continue;
     final headsign = iHead >= 0 && iHead < row.length ? row[iHead] : '';
     final hIdx = headsign.isEmpty
         ? -1
         : (headsignIdx[headsign] ??= _addHeadsign(headsigns, headsign));
-    final idx = tripIds.length;
-    tripIds.add(row[iTrip]);
-    tripIdxMap[row[iTrip]] = idx;
-    tripRouteList.add(route);
-    tripHeadsignList.add(hIdx);
+    for (final map in [if (today) tripIdxMap, if (carry) carryIdxMap]) {
+      map[row[iTrip]] = tripRouteList.length;
+      tripRouteList.add(route);
+      tripHeadsignList.add(hIdx);
+    }
   }
 }
 
@@ -594,7 +672,8 @@ int _addHeadsign(List<String> headsigns, String value) {
   return headsigns.length - 1;
 }
 
-/// Streams stop_times.txt and keeps only rows of trips active today.
+/// Streams stop_times.txt and keeps only rows of trips active today, plus
+/// yesterday's rows shifted back by [carryShift] seconds.
 ///
 /// The trip_id column repeats for every row of a trip, so it is compared as raw
 /// bytes against the previous row and only decoded when it changes. That avoids
@@ -604,6 +683,8 @@ Future<void> _parseStopTimes(
   ZipEntryInfo entry,
   Map<String, int> stopIdx,
   Map<String, int> tripIdx,
+  Map<String, int> carryIdx,
+  int carryShift,
   List<List<int>?> stopBuilders,
   List<List<int>?> seqBuilders,
   List<List<int>?> arrBuilders,
@@ -614,6 +695,7 @@ Future<void> _parseStopTimes(
 
   var prevStart = -1, prevEnd = -1;
   var prevTrip = -1;
+  var prevCarry = -1;
   final prevBytes = Uint8List(64);
   var prevLen = 0;
 
@@ -676,21 +758,26 @@ Future<void> _parseStopTimes(
 
     // Fast path: same trip_id as the previous row.
     var trip = -1;
+    var carry = -1;
     final tripLen = tripE - tripS;
-    if (prevTrip >= 0 &&
+    if (prevEnd >= 0 &&
         tripLen == prevEnd - prevStart &&
+        tripLen <= prevBytes.length &&
         _sameBytes(b, tripS, prevBytes, 0, tripLen)) {
       trip = prevTrip;
+      carry = prevCarry;
     } else {
       final id = fieldString(b, tripS, tripE);
       trip = tripIdx[id] ?? -1;
+      carry = carryIdx[id] ?? -1;
       prevTrip = trip;
+      prevCarry = carry;
       prevStart = 0;
       prevEnd = tripLen;
       prevLen = tripLen < prevBytes.length ? tripLen : prevBytes.length;
       if (prevLen > 0) prevBytes.setRange(0, prevLen, b, tripS);
     }
-    if (trip < 0) return;
+    if (trip < 0 && carry < 0) return;
 
     final stopId = fieldString(b, stopS, stopE);
     final stop = stopIdx[stopId];
@@ -702,10 +789,16 @@ Future<void> _parseStopTimes(
     if (arrSec == 0) return;
     final seq = seqS >= 0 ? parseByteInt(b, seqS, seqE) ?? 0 : 0;
 
-    (stopBuilders[trip] ??= <int>[]).add(stop);
-    (seqBuilders[trip] ??= <int>[]).add(seq);
-    (arrBuilders[trip] ??= <int>[]).add(arrSec);
-    (depBuilders[trip] ??= <int>[]).add(dep != 0 ? dep : arrSec);
+    final depSec = dep != 0 ? dep : arrSec;
+    void add(int t, int shift) {
+      (stopBuilders[t] ??= <int>[]).add(stop);
+      (seqBuilders[t] ??= <int>[]).add(seq);
+      (arrBuilders[t] ??= <int>[]).add(arrSec - shift);
+      (depBuilders[t] ??= <int>[]).add(depSec - shift);
+    }
+
+    if (trip >= 0) add(trip, 0);
+    if (carry >= 0) add(carry, carryShift);
   });
 
   await for (final chunk in zip.stream(entry)) {

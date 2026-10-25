@@ -10,6 +10,10 @@ const int kRouteTypeBus = 3;
 
 /// A stop that the map can draw. Parsed once in the worker isolate and sent to
 /// the UI as a flat, lightweight object.
+/// A stop picked in search; [mode] is set when the pick names a mode (a saved
+/// favourite), otherwise the current tab decides.
+typedef StopPick = ({String id, int? mode});
+
 class StopInfo {
   final String id;
   final String name;
@@ -159,9 +163,8 @@ class Vehicle {
   /// vehicle's route geometry when the user taps its badge.
   final String tripId;
 
-  /// GTFS shape id of the trip. The streaming relay sends this with every
-  /// vehicle, so tapping a badge can draw the exact road/track the vehicle
-  /// follows instead of a straight line between stops.
+  /// GTFS shape id of the trip when known up front. Empty for ZET's feed: the
+  /// worker resolves it from trips.txt via [tripId] when a badge is tapped.
   final String shapeId;
 
   const Vehicle({
@@ -226,9 +229,6 @@ class FeedStats {
   /// Seconds between the newest vehicle fix and the feed timestamp.
   final int positionAgeSec;
 
-  /// True while updates arrive over the streaming channel.
-  final bool streaming;
-
   const FeedStats({
     this.vehicles = 0,
     this.vehiclesTram = 0,
@@ -244,7 +244,6 @@ class FeedStats {
     this.refreshMs = 0,
     this.feedTimestamp = 0,
     this.positionAgeSec = 0,
-    this.streaming = false,
   });
 
   FeedStats copyWith({
@@ -262,7 +261,6 @@ class FeedStats {
     int? refreshMs,
     int? feedTimestamp,
     int? positionAgeSec,
-    bool? streaming,
   }) {
     return FeedStats(
       vehicles: vehicles ?? this.vehicles,
@@ -279,7 +277,6 @@ class FeedStats {
       refreshMs: refreshMs ?? this.refreshMs,
       feedTimestamp: feedTimestamp ?? this.feedTimestamp,
       positionAgeSec: positionAgeSec ?? this.positionAgeSec,
-      streaming: streaming ?? this.streaming,
     );
   }
 

@@ -159,9 +159,11 @@ class _HomeScreenState extends State<HomeScreen>
 
 
   /// Shared by the stop dropdown and the search screen: select a stop, switch
-  /// to the mode it actually serves, and make sure the sheet is open.
-  void _selectStop(String id) {
-    var mode = _mode;
+  /// to [preferredMode] (a favourite's saved mode) or else keep the current
+  /// one, falling back to the mode the stop actually serves, and make sure
+  /// the sheet is open.
+  void _selectStop(String id, [int? preferredMode]) {
+    var mode = preferredMode ?? _mode;
     for (final stop in widget.feed.stops.value) {
       if (stop.id != id) continue;
       if (!stop.serves(mode)) {

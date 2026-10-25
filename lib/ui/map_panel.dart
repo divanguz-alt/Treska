@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:vector_map_tiles/vector_map_tiles.dart';
 
 import '../core/theme.dart';
 import '../core/tokens.dart';
@@ -28,8 +29,9 @@ class MapPanel extends StatefulWidget {
   /// Stop highlighted on the map and selected in the board.
   final String? selectedStopId;
 
-  /// Called when a stop is picked in the search screen.
-  final ValueChanged<String> onStopSelected;
+  /// Called when a stop is picked (search, map, stars). [mode] is set when the
+  /// pick names a mode, as a saved favourite does.
+  final void Function(String id, [int? mode]) onStopSelected;
 
   /// How much of the screen the bottom sheet covers (0..1), used to keep the
   /// zoom controls and FAB just above it.
@@ -127,6 +129,29 @@ class _MapPanelState extends State<MapPanel> {
   bool _tilesFailed = false;
   int _tileGeneration = 0;
 
+  /// Vector map styles by URL, shared by every map panel. A URL that failed to
+  /// load maps to null, and the map draws the raster fallback instead.
+  static final Map<String, Style?> _styles = {};
+  static final Set<String> _stylesLoading = {};
+
+  /// The vector style for [url] once loaded; starts loading it otherwise.
+  Style? _vectorStyle(String url) {
+    if (url.isEmpty) return null;
+    if (_styles.containsKey(url)) return _styles[url];
+    if (_stylesLoading.add(url)) {
+      StyleReader(uri: url)
+          .read()
+          .timeout(const Duration(seconds: 20))
+          .then<Style?>((style) => style, onError: (_) => null)
+          .then((style) {
+            _styles[url] = style;
+            _stylesLoading.remove(url);
+            if (mounted) setState(() {});
+          });
+    }
+    return null;
+  }
+
   /// Set from [MapOptions.onMapReady]. Reading `MapController.camera` before the
   /// map has been laid out throws, so every camera read is gated on this.
   bool _mapReady = false;
@@ -195,6 +220,7 @@ class _MapPanelState extends State<MapPanel> {
 
   void _retryTiles() {
     setState(() {
+      _styles.removeWhere((_, style) => style == null);
       _tileErrors = 0;
       _tilesFailed = false;
       _tileGeneration++;
@@ -230,12 +256,7 @@ class _MapPanelState extends State<MapPanel> {
   LatLng _shiftForSheet(LatLng point, double zoom, {double? hiddenPx}) {
     final hidden = hiddenPx ?? widget.bottomInsetPx;
     if (hidden <= 0) return point;
-    return MapPanel.shiftForSheet(
-      point,
-      zoom,
-      hidden,
-      topInsetPx: _topInsetPx,
-    );
+    return MapPanel.shiftForSheet(point, zoom, hidden, topInsetPx: _topInsetPx);
   }
 
   /// Bottom of the search bar (56) + gap (10) + live chip (32), below the
@@ -268,8 +289,10 @@ class _MapPanelState extends State<MapPanel> {
     // looking at.
     final size = camera.nonRotatedSize;
     final visibleTop = _topInsetPx.clamp(0.0, size.y);
-    final visibleBottom =
-        (size.y - widget.bottomInsetPx).clamp(visibleTop, size.y);
+    final visibleBottom = (size.y - widget.bottomInsetPx).clamp(
+      visibleTop,
+      size.y,
+    );
     final focus = math.Point<double>(
       size.x / 2,
       (visibleTop + visibleBottom) / 2,
@@ -357,7 +380,10 @@ class _MapPanelState extends State<MapPanel> {
   }
 
   List<CircleMarker<String>> _circlesFor(
-      BuildContext context, List<StopInfo> all, int mode) {
+    BuildContext context,
+    List<StopInfo> all,
+    int mode,
+  ) {
     final brightness = Theme.of(context).brightness;
     final favorites = widget.settings.favorites;
     final settings = widget.settings;
@@ -395,6 +421,12 @@ class _MapPanelState extends State<MapPanel> {
   Widget build(BuildContext context) {
     final colors = context.zet;
     final bottomInset = widget.bottomInsetPx;
+    final vectorStyle = _vectorStyle(colors.mapStyleUrl);
+    // Raster tiles draw while no vector style is configured, or after it
+    // failed to load; while it is still loading the map shows its background.
+    final rasterTiles =
+        vectorStyle == null &&
+        (colors.mapStyleUrl.isEmpty || _styles.containsKey(colors.mapStyleUrl));
 
     return Stack(
       children: [
@@ -412,8 +444,11 @@ class _MapPanelState extends State<MapPanel> {
               final vehicles = widget.feed.vehicles.value
                   .where((v) => widget.mode == kModeTram ? v.isTram : !v.isTram)
                   .toList(growable: false);
-              final circles =
-                  _circlesFor(context, widget.feed.stops.value, widget.mode);
+              final circles = _circlesFor(
+                context,
+                widget.feed.stops.value,
+                widget.mode,
+              );
               final radius = widget.settings.radiusM;
 
               StopInfo? focusedStop;
@@ -463,18 +498,35 @@ class _MapPanelState extends State<MapPanel> {
                   onMapReady: () => _mapReady = true,
                 ),
                 children: [
-                  TileLayer(
-                    key: ValueKey('base_${colors.brightness}_$_tileGeneration'),
-                    urlTemplate: colors.tileUrl,
-                    subdomains: colors.tileSubdomains,
-                    userAgentPackageName: 'hr.zet.zet2',
-                    maxNativeZoom: colors.tileMaxNativeZoom,
-                    errorTileCallback: (_, _, _) => _onTileError(),
-                  ),
-                  if (colors.tileLabelsUrl.isNotEmpty)
+                  if (vectorStyle != null)
+                    VectorTileLayer(
+                      key: ValueKey(
+                        'vector_${colors.mapStyleUrl}_$_tileGeneration',
+                      ),
+                      // OpenFreeMap's styles all carry the id "default",
+                      // and the tile cache is keyed by theme id: without a
+                      // distinct id the light map reuses dark tiles.
+                      theme: vectorStyle.theme
+                          .copyWith(id: colors.mapStyleUrl.split('/').last),
+                      sprites: vectorStyle.sprites,
+                      tileProviders: vectorStyle.providers,
+                    ),
+                  if (rasterTiles)
                     TileLayer(
                       key: ValueKey(
-                          'labels_${colors.brightness}_$_tileGeneration'),
+                        'base_${colors.brightness}_$_tileGeneration',
+                      ),
+                      urlTemplate: colors.tileUrl,
+                      subdomains: colors.tileSubdomains,
+                      userAgentPackageName: 'hr.zet.zet2',
+                      maxNativeZoom: colors.tileMaxNativeZoom,
+                      errorTileCallback: (_, _, _) => _onTileError(),
+                    ),
+                  if (rasterTiles && colors.tileLabelsUrl.isNotEmpty)
+                    TileLayer(
+                      key: ValueKey(
+                        'labels_${colors.brightness}_$_tileGeneration',
+                      ),
                       urlTemplate: colors.tileLabelsUrl,
                       subdomains: colors.tileSubdomains,
                       userAgentPackageName: 'hr.zet.zet2',
@@ -494,65 +546,72 @@ class _MapPanelState extends State<MapPanel> {
                   // picker, so the board and map never disagree about where
                   // "the selected stop" is.
                   if (focusedStop != null)
-                    CircleLayer(circles: [
-                      CircleMarker(
-                        point: LatLng(focusedStop.lat, focusedStop.lon),
-                        radius: 15,
-                        useRadiusInMeter: false,
-                        color: colors.primary.withValues(alpha: 0.16),
-                        borderColor: colors.primary,
-                        borderStrokeWidth: 2.5,
-                      ),
-                    ]),
+                    CircleLayer(
+                      circles: [
+                        CircleMarker(
+                          point: LatLng(focusedStop.lat, focusedStop.lon),
+                          radius: 15,
+                          useRadiusInMeter: false,
+                          color: colors.primary.withValues(alpha: 0.16),
+                          borderColor: colors.primary,
+                          borderStrokeWidth: 2.5,
+                        ),
+                      ],
+                    ),
                   // Favourite stops are stars instead of discs, so the saved
                   // places are recognisable at a glance. Tapping one selects it
                   // in the board just like tapping its disc would.
                   MarkerLayer(
                     markers: [
                       for (final s in favoriteStops)
-                          Marker(
-                            point: LatLng(s.lat, s.lon),
-                            width: 32,
-                            height: 32,
-                            alignment: Alignment.center,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () {
-                                _focusStop(s.id);
-                                widget.onStopSelected(s.id);
-                              },
-                              child: _FavoriteStar(
-                                selected: s.id == widget.selectedStopId,
-                              ),
+                        Marker(
+                          point: LatLng(s.lat, s.lon),
+                          width: 32,
+                          height: 32,
+                          alignment: Alignment.center,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () {
+                              _focusStop(s.id);
+                              widget.onStopSelected(s.id);
+                            },
+                            child: _FavoriteStar(
+                              selected: s.id == widget.selectedStopId,
                             ),
                           ),
+                        ),
                     ],
                   ),
                   // Route of the tapped vehicle, drawn under the badges.
                   if (selectedShape != null)
-                    PolylineLayer(polylines: [
-                      Polyline(
-                        points: selectedShape,
-                        strokeWidth: 5,
-                        color: (selectedVehicle?.isTram ?? true
-                                ? colors.tram
-                                : colors.bus)
-                            .withValues(alpha: 0.9),
-                        borderStrokeWidth: 2,
-                        borderColor: colors.bg,
-                      ),
-                    ]),
-                  // 800 m (or 400/1200) walking radius around the user.
-                  CircleLayer(circles: [
-                    CircleMarker(
-                      point: center,
-                      radius: radius,
-                      useRadiusInMeter: true,
-                      color: colors.primary.withValues(alpha: 0.05),
-                      borderColor: colors.primary.withValues(alpha: 0.55),
-                      borderStrokeWidth: 1.5,
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: selectedShape,
+                          strokeWidth: 5,
+                          color:
+                              (selectedVehicle?.isTram ?? true
+                                      ? colors.tram
+                                      : colors.bus)
+                                  .withValues(alpha: 0.9),
+                          borderStrokeWidth: 2,
+                          borderColor: colors.bg,
+                        ),
+                      ],
                     ),
-                  ]),
+                  // 800 m (or 400/1200) walking radius around the user.
+                  CircleLayer(
+                    circles: [
+                      CircleMarker(
+                        point: center,
+                        radius: radius,
+                        useRadiusInMeter: true,
+                        color: colors.primary.withValues(alpha: 0.05),
+                        borderColor: colors.primary.withValues(alpha: 0.55),
+                        borderStrokeWidth: 1.5,
+                      ),
+                    ],
+                  ),
                   MarkerLayer(
                     markers: [
                       for (final v in vehicles)
@@ -572,15 +631,17 @@ class _MapPanelState extends State<MapPanel> {
                         ),
                     ],
                   ),
-                  MarkerLayer(markers: [
-                    Marker(
-                      point: center,
-                      width: 34,
-                      height: 34,
-                      alignment: Alignment.center,
-                      child: _UserMarker(gps: pos.gps),
-                    ),
-                  ]),
+                  MarkerLayer(
+                    markers: [
+                      Marker(
+                        point: center,
+                        width: 34,
+                        height: 34,
+                        alignment: Alignment.center,
+                        child: _UserMarker(gps: pos.gps),
+                      ),
+                    ],
+                  ),
                 ],
               );
             },
@@ -599,9 +660,9 @@ class _MapPanelState extends State<MapPanel> {
                 feed: widget.feed,
                 themeController: widget.themeController,
                 settings: widget.settings,
-                onSelected: (stopId) {
-                  _focusStop(stopId);
-                  widget.onStopSelected(stopId);
+                onSelected: (pick) {
+                  _focusStop(pick.id);
+                  widget.onStopSelected(pick.id, pick.mode);
                 },
               ),
               const SizedBox(height: 10),
@@ -635,20 +696,14 @@ class _MapPanelState extends State<MapPanel> {
         Positioned(
           right: ZetSpace.xl,
           bottom: bottomInset + ZetSpace.lg + 56 + ZetSpace.md,
-          child: _ZoomControls(
-            onIn: () => _zoom(1),
-            onOut: () => _zoom(-1),
-          ),
+          child: _ZoomControls(onIn: () => _zoom(1), onOut: () => _zoom(-1)),
         ),
 
         // Location FAB, just above the sheet.
         Positioned(
           right: ZetSpace.lg,
           bottom: bottomInset + ZetSpace.lg,
-          child: _LocationFab(
-            following: _followUser,
-            onTap: _recenter,
-          ),
+          child: _LocationFab(following: _followUser, onTap: _recenter),
         ),
 
         // Ticket purchase lives in ZET's own app. Its button mirrors the
@@ -663,7 +718,7 @@ class _MapPanelState extends State<MapPanel> {
         Positioned(
           left: ZetSpace.lg + 56 + ZetSpace.sm,
           bottom: bottomInset + ZetSpace.sm,
-          child: _Attribution(colors: colors),
+          child: _Attribution(colors: colors, vector: vectorStyle != null),
         ),
 
         if (_tilesFailed)
@@ -680,7 +735,10 @@ class _MapPanelState extends State<MapPanel> {
 /// Required credit for the tile provider.
 class _Attribution extends StatelessWidget {
   final ZetColors colors;
-  const _Attribution({required this.colors});
+
+  /// True while the OpenFreeMap vector style is drawn.
+  final bool vector;
+  const _Attribution({required this.colors, required this.vector});
 
   @override
   Widget build(BuildContext context) {
@@ -693,11 +751,13 @@ class _Attribution extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
           child: Text(
-            colors.isDark ? '© Esri · OSM' : '© OpenStreetMap',
-            style: TextStyle(
-              fontSize: 9,
-              color: colors.textDim,
-              ),
+            // OpenFreeMap's required credit, minus its optional own name.
+            vector
+                ? '© OpenMapTiles © OpenStreetMap'
+                : colors.isDark
+                ? '© Esri · OSM'
+                : '© OpenStreetMap',
+            style: TextStyle(fontSize: 9, color: colors.textDim),
           ),
         ),
       ),
@@ -728,8 +788,8 @@ class _VehicleCard extends StatelessWidget {
     final subtitle = loading
         ? 'Tražim rutu…'
         : hasShape
-            ? 'Ruta je prikazana na karti'
-            : 'Ruta nije dostupna';
+        ? 'Ruta je prikazana na karti'
+        : 'Ruta nije dostupna';
 
     return Material(
       color: colors.panel,
@@ -771,7 +831,7 @@ class _VehicleCard extends StatelessWidget {
                     vehicle.headsign.isEmpty
                         ? 'Linija ${vehicle.routeShortName}'
                         : 'Linija ${vehicle.routeShortName}  →  '
-                            '${vehicle.headsign}',
+                              '${vehicle.headsign}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -796,10 +856,7 @@ class _VehicleCard extends StatelessWidget {
                           subtitle,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colors.textDim,
-                          ),
+                          style: TextStyle(fontSize: 12, color: colors.textDim),
                         ),
                       ),
                     ],
@@ -834,7 +891,9 @@ class _TileErrorChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(ZetRadius.chip),
       child: Container(
         padding: const EdgeInsets.symmetric(
-            horizontal: ZetSpace.md, vertical: ZetSpace.sm),
+          horizontal: ZetSpace.md,
+          vertical: ZetSpace.sm,
+        ),
         decoration: BoxDecoration(
           color: colors.bg.withValues(alpha: 0.94),
           border: Border.all(color: colors.danger.withValues(alpha: 0.6)),
@@ -847,10 +906,7 @@ class _TileErrorChip extends StatelessWidget {
             const SizedBox(width: 6),
             Text(
               'Karta se ne učitava',
-              style: TextStyle(
-                fontSize: 13,
-                color: colors.danger,
-                ),
+              style: TextStyle(fontSize: 13, color: colors.danger),
             ),
             const SizedBox(width: 6),
             Icon(Icons.refresh, size: 14, color: colors.danger),
@@ -878,10 +934,7 @@ class _FavoriteStar extends StatelessWidget {
     return Center(
       child: CustomPaint(
         size: Size.square(size),
-        painter: _StarPainter(
-          fill: colors.primary,
-          stroke: colors.bg,
-        ),
+        painter: _StarPainter(fill: colors.primary, stroke: colors.bg),
       ),
     );
   }
@@ -967,7 +1020,7 @@ class _SearchBar extends StatelessWidget {
   final SettingsController settings;
 
   /// Receives the stop picked in the search screen.
-  final ValueChanged<String> onSelected;
+  final ValueChanged<StopPick> onSelected;
 
   const _SearchBar({
     required this.feed,
@@ -977,13 +1030,9 @@ class _SearchBar extends StatelessWidget {
   });
 
   Future<void> _openSearch(BuildContext context) async {
-    final stopId = await showStopSearch(
-      context,
-      feed: feed,
-      settings: settings,
-    );
-    if (stopId != null && stopId.isNotEmpty && context.mounted) {
-      onSelected(stopId);
+    final pick = await showStopSearch(context, feed: feed, settings: settings);
+    if (pick != null && pick.id.isNotEmpty && context.mounted) {
+      onSelected(pick);
     }
   }
 
@@ -1011,10 +1060,7 @@ class _SearchBar extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'Traži stanicu ili liniju',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: colors.textDim,
-                      ),
+                    style: TextStyle(fontSize: 16, color: colors.textDim),
                   ),
                 ),
               ),
@@ -1023,8 +1069,9 @@ class _SearchBar extends StatelessWidget {
               tooltip: dark ? 'Svijetla tema' : 'Tamna tema',
               iconSize: 24,
               color: colors.text,
-              onPressed: () => themeController
-                  .setMode(dark ? ThemeMode.light : ThemeMode.dark),
+              onPressed: () => themeController.setMode(
+                dark ? ThemeMode.light : ThemeMode.dark,
+              ),
               icon: Icon(dark ? Icons.light_mode : Icons.dark_mode),
             ),
             IconButton(
@@ -1082,7 +1129,7 @@ class _LiveChip extends StatelessWidget {
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                   color: colors.text,
-                  ),
+                ),
               ),
               const SizedBox(width: ZetSpace.sm),
               Text(
@@ -1176,9 +1223,7 @@ class _LocationFab extends StatelessWidget {
             child: Icon(
               following ? Icons.my_location : Icons.location_searching,
               size: 24,
-              color: following
-                  ? colors.onPrimary
-                  : colors.onPrimaryContainer,
+              color: following ? colors.onPrimary : colors.onPrimaryContainer,
             ),
           ),
         ),
@@ -1197,9 +1242,11 @@ class _TicketFab extends StatelessWidget {
     if (!ok) {
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(
-          content: Text('Ne mogu otvoriti Moj ZET ni Trgovinu Play.'),
-        ));
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Ne mogu otvoriti Moj ZET ni Trgovinu Play.'),
+          ),
+        );
     }
   }
 

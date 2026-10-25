@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:zet2/data/gtfs_rt.dart';
 import 'package:zet2/data/models.dart';
-import 'package:zet2/data/rt_socket.dart';
 
 /// Encodes a protobuf varint.
 List<int> _varint(int value) {
@@ -44,16 +43,24 @@ void main() {
         ..._floatField(3, 123.5),
       ];
       final vehicle = [
+        // Field numbers from gtfs-realtime.proto: trip 1, position 2,
+        // current_stop_sequence 3, timestamp 5, stop_id 7.
         ..._bytesField(1, trip),
-        ..._bytesField(3, position),
-        ..._intField(6, 1792687645),
+        ..._bytesField(2, position),
+        ..._intField(3, 12),
+        ..._intField(5, 1792687645),
+        ..._stringField(7, 'stop-9'),
       ];
       final entity = [
         ..._stringField(1, 'e1'),
         ..._bytesField(4, vehicle),
       ];
       final feed = Uint8List.fromList([
-        ..._bytesField(1, _intField(1, 1792687650)),
+        ..._bytesField(1, [
+          ..._stringField(1, '2.0'),
+          ..._intField(2, 0),
+          ..._intField(3, 1792687650),
+        ]),
         ..._bytesField(2, entity),
       ]);
 
@@ -66,6 +73,8 @@ void main() {
       expect(vp.position.latitude, closeTo(45.8, 0.001));
       expect(vp.position.longitude, closeTo(15.9, 0.001));
       expect(vp.timestamp, 1792687645);
+      expect(vp.currentStopSequence, 12);
+      expect(vp.currentStopId, 'stop-9');
     });
 
     test('keeps parsing after a malformed tail', () {
@@ -103,20 +112,6 @@ void main() {
     test('falls back to position age when the header is missing', () {
       const stats = FeedStats(positionAgeSec: 42);
       expect(stats.ageSecAt(now), 42);
-    });
-  });
-
-  group('rt socket protocol', () {
-    test('hex decoding round-trips through the relay payload shape', () {
-      final payload = Uint8List.fromList(List.generate(240, (i) => i % 251));
-      final hex = payload
-          .map((b) => b.toRadixString(16).padLeft(2, '0'))
-          .join();
-      // The socket decodes hex then gunzips; this checks the hex step matches
-      // what the relay sends for `gzipped_data`.
-      expect(hex.length, payload.length * 2);
-      expect(hex.substring(0, 4), '0001');
-      expect(RtSocket.defaultUrl, startsWith('wss://'));
     });
   });
 }

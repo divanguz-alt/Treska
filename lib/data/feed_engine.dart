@@ -95,7 +95,6 @@ class FeedEngine {
     required double lon,
     required Uint8List? rtBytes,
     required DateTime now,
-    RtFeed? rtFeed,
     double radiusM = searchRadiusM,
     Set<String> pinnedStopIds = const {},
   }) {
@@ -150,26 +149,18 @@ class FeedEngine {
       pinnedGroups[id] = group;
     }
 
-    // ── Realtime feeds ─────────────────────────────────────────────────────
-    // Two sources can be present at once and they complement each other:
-    //   * the protobuf REST feed carries StopTimeUpdate predictions (per stop),
-    //   * the streaming feed carries the freshest vehicle fixes and a
-    //     per-vehicle delay but no per-stop predictions.
-    // Vehicles are preferred from the stream; predictions always come from the
-    // protobuf feed.
+    // ── Realtime feed ──────────────────────────────────────────────────────
+    // ZET's protobuf carries both the vehicle fixes (VehiclePosition) and the
+    // StopTimeUpdate predictions, as separate entities per trip.
     var error = '';
-    var restFeed = const RtFeed([]);
+    var feed = const RtFeed([]);
     if (rtBytes != null && rtBytes.isNotEmpty) {
       try {
-        restFeed = parseRtFeed(rtBytes);
+        feed = parseRtFeed(rtBytes);
       } catch (e) {
         error = 'RT: $e';
       }
     }
-    final streamFeed = rtFeed ?? const RtFeed([]);
-    final feed = streamFeed.entities.isEmpty && streamFeed.timestamp == 0
-        ? restFeed
-        : _merge(restFeed, streamFeed);
 
     final rtByTrip = <String, List<_RtTripStop>>{};
     final pending = <_PendingVehicle>[];
@@ -195,7 +186,8 @@ class FeedEngine {
 
       if (hasGps) {
         final tid = vp.trip.tripId;
-        final trip = data.tripIdx[tid];
+        final trip = data.tripFor(tid,
+            startDate: vp.trip.startDate, nowSec: nowSec);
         final routeIdx = trip != null
             ? data.tripRoute[trip]
             : data.routeIdx[vp.trip.routeId];
@@ -211,7 +203,6 @@ class FeedEngine {
             headsign: _headsignFor(trip),
             positionTimestamp: vp.timestamp,
             tripId: tid,
-            shapeId: entity.tripUpdate?.shapeId ?? '',
           ));
           if (tid.isNotEmpty) pendingKeys.add(tid);
         }
@@ -228,7 +219,8 @@ class FeedEngine {
       }
 
       final tid = tu.trip.tripId;
-      final trip = data.tripIdx[tid];
+      final trip =
+          data.tripFor(tid, startDate: tu.trip.startDate, nowSec: nowSec);
       final pattern = trip != null ? data.patterns[trip] : null;
       final routeIdx = trip != null
           ? data.tripRoute[trip]
@@ -333,7 +325,7 @@ class FeedEngine {
       if (p.tripId.isEmpty) return;
       if (!pendingKeys.add(p.tripId)) return;
 
-      final trip = data.tripIdx[p.tripId];
+      final trip = data.tripFor(p.tripId, nowSec: nowSec);
       final pattern = trip != null ? data.patterns[trip] : null;
 
       var pos = -1;
@@ -659,37 +651,6 @@ class FeedEngine {
   }
 
 
-  /// Folds the protobuf predictions and the streamed vehicle fixes into one
-  /// feed. Streamed entities win for positions (newest fix) and contribute a
-  /// per-trip delay when the protobuf feed has no prediction for that trip.
-  static RtFeed _merge(RtFeed restFeed, RtFeed streamFeed) {
-    if (restFeed.entities.isEmpty) return streamFeed;
-    if (streamFeed.entities.isEmpty) return restFeed;
-
-    final entities = <RtEntity>[...streamFeed.entities];
-
-    final seen = <String>{};
-    for (final e in streamFeed.entities) {
-      final tid = e.tripUpdate?.trip.tripId ?? e.vehicle?.trip.tripId ?? '';
-      if (tid.isNotEmpty) seen.add(tid);
-    }
-
-    // Protobuf entities for trips the stream already covers would duplicate
-    // vehicles; keep only their predictions by clearing the position.
-    for (final e in restFeed.entities) {
-      final tid = e.tripUpdate?.trip.tripId ?? e.vehicle?.trip.tripId ?? '';
-      if (tid.isNotEmpty && seen.contains(tid)) {
-        if (e.tripUpdate != null && e.vehicle == null) {
-          entities.add(RtEntity(id: e.id, tripUpdate: e.tripUpdate));
-        }
-        continue;
-      }
-      entities.add(e);
-    }
-
-    return RtFeed(entities, timestamp: streamFeed.timestamp);
-  }
-
   static int _upperBound(Int32List values, int target) {
     var lo = 0;
     var hi = values.length;
@@ -706,11 +667,11 @@ class FeedEngine {
 
   /// Route geometry for a trip, as a flat `[lat, lon, lat, lon, …]` array.
   ///
-  /// Used when a vehicle badge is tapped and the relay did not provide a
-  /// `shapeId`: the trip's stop sequence is still a faithful-enough outline for
+  /// Used when a vehicle badge is tapped and trips.txt has no shape for the
+  /// trip: its stop sequence is still a faithful-enough outline for
   /// a route that mostly runs along the same street.
   List<double> shapeForTrip(String tripId) {
-    final trip = data.tripIdx[tripId];
+    final trip = data.tripFor(tripId);
     if (trip == null) return const [];
     final pattern = data.patterns[trip];
     final out = <double>[];

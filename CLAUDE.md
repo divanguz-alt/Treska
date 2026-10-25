@@ -16,7 +16,7 @@ flutter analyze
 flutter build apk --release     # build/app/outputs/flutter-apk/app-release.apk
 ```
 
-App id: `hr.zet.zet2`, label **Treska**, version `2.0.0+2`. It installs next
+App id: `hr.zet.zet2`, label **Treska**, version: see `pubspec.yaml`. It installs next
 to the old Treska and does not share its data.
 
 ## Architecture
@@ -32,11 +32,9 @@ lib/
     zip.dart             streaming ZIP reader + byte-level line/CSV helpers
     gtfs_static.dart     compact static GTFS index (parse ~580 ms, ~20 MB)
     gtfs_rt.dart         hand-written GTFS-Realtime protobuf reader
-    rt_socket.dart       streaming vehicle feed (wss relay), REST fallback
-    wire_feed.dart       relay JSON -> RtFeed (delta coords, per-vehicle delay)
     update_service.dart  GitHub Releases check + APK download/install
     feed_engine.dart     static+RT join: nearby stops, arrivals, vehicles
-    worker.dart          background isolate: download, parse, RT polling/socket
+    worker.dart          background isolate: download, parse, RT polling
     feed_controller.dart UI-facing ValueNotifiers + lifecycle + 5 s poll loop
     location_service.dart geolocator wrapper with cache and fallback
   ui/
@@ -63,7 +61,9 @@ ZET 2:
    with `RawZLibFilter(raw: true)` in 256 KB chunks. The parser consumes bytes
    line by line; the full file is never a `String`.
 2. Only trips running **today** are kept (`calendar.txt` + `calendar_dates.txt`):
-   typically 13.5k of 98.9k trips / 228k of 1.7M stop-time rows.
+   typically 13.5k of 98.9k trips / 228k of 1.7M stop-time rows. Yesterday's
+   trips that run past midnight (GTFS 24:00+, e.g. night trams 31-34) are
+   kept too, shifted onto today's service day (`carryTripIdx`).
 3. Storage is typed arrays: per-trip `Int32List` patterns and per-stop sorted
    `Int32List` departure pairs. No maps/objects per row.
 4. `FeedEngine` lives in the worker isolate together with `StaticData`. The UI
@@ -71,9 +71,9 @@ ZET 2:
    plus the vehicle list.
 5. Refresh is **5 s**, guarded against overlap and paused when the app is not
    visible.
-6. A WebSocket client (`rt_socket.dart`) pushes each new vehicle snapshot into
-   the worker as soon as the relay publishes it, so positions are not limited to
-   the poll cadence.
+6. The index is rebuilt from the cached ZIP when the service day changes
+   (local midnight), so the board never runs yesterday's timetable against
+   today's clock.
 
 Measured on the author's machine (Dart VM, real ZET feed):
 
@@ -100,14 +100,13 @@ Measured on the author's machine (Dart VM, real ZET feed):
 - A board row is `realtime` when a GTFS-RT `stop_time_update` resolves for that
   stop (direct `stop_id`, else `stop_sequence` → static pattern).
 - Times: absolute departure → absolute arrival → schedule + delay.
-- A trip-level delay (per-vehicle `reportDelays` from the stream, or the last
-  `stop_time_update.delay` from protobuf) shifts **every later scheduled row of
+- A trip-level delay (the last `stop_time_update.delay` of that trip) shifts **every later scheduled row of
   that trip**, marked `≈ procjena` / `ArrivalSource.estimated`. This is how the
   board stays honest about a vehicle that is already 3 minutes late further down
   the line.
-- Vehicle positions: streaming fix → VehiclePosition GPS → current RT stop →
-  static schedule. Bearing: RT bearing (`directionDegrees`), else previous
-  position of the same route, else bearing to the next stop.
+- Vehicle positions: VehiclePosition GPS → current RT stop → static schedule.
+  Bearing: RT bearing (ZET publishes none today), else previous position of
+  the same route, else bearing to the next stop.
 - Vehicles with **no GPS fix at all** are placed from the timetable, flagged
   `estimated`, drawn dimmed with an outer ring, and documented by the `PROCJENA`
   legend entry — they never read as measured positions.
@@ -116,23 +115,19 @@ Measured on the author's machine (Dart VM, real ZET feed):
   departures of that route stay visible.
 - Max 5 merged stops per mode, 10 arrivals per stop, 2 per route+headsign.
 
-### Streaming vs polling
+### Realtime source
 
-Two sources feed the engine and they are complementary:
-
-| Source | Cadence | Provides |
-| --- | --- | --- |
-| `wss://zet.skoljka.org/ws-v4?appUpdates=1` | ~10 s | vehicle fixes, per-vehicle delay |
-| `https://zet.hr/gtfs-rt-protobuf` (REST) | 5 s poll | `stop_time_update` predictions |
-
-`FeedEngine._merge` prefers streamed fixes for positions and keeps the protobuf
-predictions, deduplicating by trip id. The relay also multiplexes news and
-app-version notices on the same socket; those are ignored. If the socket is quiet
-for 45 s the worker silently falls back to REST for vehicles too — the relay is a
-speed-up, never a hard dependency.
+Only ZET itself: `https://zet.hr/gtfs-rt-protobuf`, polled every 5 s. One
+protobuf carries both VehiclePosition fixes and StopTimeUpdate predictions, as
+separate entities per trip. Until 2.1.9 the app also read a third-party relay
+(`zet.skoljka.org`); it was dropped because it only re-published the same ZET
+fixes, and it had masked a parser bug (VehiclePosition fields read at the wrong
+numbers). Field numbers in `gtfs_rt.dart` follow `gtfs-realtime.proto`; the
+trip descriptor's `start_date` tells yesterday's after-midnight run apart from
+today's run of the same trip id (`StaticData.tripFor`).
 
 `FeedStats` carries the feed header time and the newest fix time, so the header
-chip (`◉ SADA` / `◉ N min`) and the diagnostics `STAROST PODATAKA` row always
+status chip and the diagnostics `Starost podataka` row always
 report the real age, including time spent with no data at all. The chip is driven
 by `TimerBuilder` (1 s) so it keeps counting up on a stalled feed.
 
@@ -159,20 +154,31 @@ GitHub Releases and can install a newer build in place.
 ## Data sources
 
 ```
-https://zet.hr/gtfs-scheduled/latest   ~18.8 MB ZIP, cached 12 h on device
+https://zet.hr/gtfs-scheduled/latest   ~18.8 MB ZIP, cached on device
 https://zet.hr/gtfs-rt-protobuf        ~85 KB protobuf, polled every 5 s
-wss://zet.skoljka.org/ws-v4            streamed vehicle snapshots, ~10 s
+https://tiles.openfreemap.org/styles/  vector map (positron / dark)
 ```
 
-The static ZIP is re-downloaded after 4 h in a running app; the manual
-`RASPORED` button forces a re-download at any time.
+The static ZIP is fetched conditionally (`If-None-Match` / `If-Modified-Since`,
+validators in `gtfs_static.zip.validators`): a cache younger than 12 h is used
+at startup without a request, a running app asks every 4 h, and an unchanged
+feed costs a 304 instead of 18.8 MB. The manual `RASPORED` button forces an
+unconditional re-download.
+
+Map: OpenFreeMap vector styles through `vector_map_tiles` (free, no key, apps
+allowed; credit `© OpenMapTiles © OpenStreetMap`). `ZetColors.mapStyleUrl`
+selects the style; set it to `''` to go back to the raster fallback
+(`tileUrl`: OSM light / Esri dark), which is also used if the style fails to
+load. Both OpenFreeMap styles have the theme id `default`, so the map gives
+each a distinct id, otherwise the tile cache mixes light and dark tiles.
 
 User-Agent sent: `Treska/2.0 (Flutter; ZET timetable)`.
 
 Measured upstream behaviour (2026-10-22, 13 samples at 5 s): the feed header
 moves every ~10 s, and the vehicle fixes inside it are ~2–12 s behind the header.
-The relay offers no interpolation — it forwards ZET's raw fixes, so Treska shows
-the same positions with an explicit age rather than faking smoothness.
+Treska shows these raw fixes with an explicit age rather than faking
+smoothness. Most StopTimeUpdate delays are negative (median about -40 s on
+2026-10-25), so "N min ranije" rows are ZET's own data, not a sign error.
 
 Benchmarks use downloaded copies:
 
@@ -183,9 +189,10 @@ dart run tool/parse_bench.dart /tmp/zet_static.zip
 dart run tool/feed_bench.dart  /tmp/zet_static.zip /tmp/zet_rt.bin
 ```
 
-The protobuf reader is validated against Python `gtfs_realtime_pb2`:
-883 entities / 551 trip updates / 332 vehicles / 600+ stop-time updates — exact
-match.
+The protobuf reader is checked against a raw decode of the live feed (field
+numbers, not just counts). `test/rt_reality_test.dart` asserts every vehicle in
+`/tmp/zet_rt.bin` has a Zagreb GPS fix; reality tests run with
+`flutter test --tags reality --run-skipped`.
 
 ## Theme
 

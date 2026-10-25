@@ -47,6 +47,11 @@ class ZetColors extends ThemeExtension<ZetColors> {
   final Color inverse;
   final Color onInverse;
 
+  /// Vector map style (MapLibre style JSON). When set, the map draws vector
+  /// tiles from it and the raster fields below are only the fallback for a
+  /// style that fails to load. Empty: raster only.
+  final String mapStyleUrl;
+
   /// Raster tile template for the map. `{s}` is optional.
   final String tileUrl;
 
@@ -92,6 +97,7 @@ class ZetColors extends ThemeExtension<ZetColors> {
     required this.onLiveContainer,
     required this.inverse,
     required this.onInverse,
+    this.mapStyleUrl = '',
     required this.tileUrl,
     required this.tileSubdomains,
     this.tileLabelsUrl = '',
@@ -130,8 +136,10 @@ class ZetColors extends ThemeExtension<ZetColors> {
     onLiveContainer: Color(0xFFFEDBD6),
     inverse: Color(0xFFE1E5EA),
     onInverse: Color(0xFF1C222B),
-    // Esri's dark canvas: labels are a separate reference layer, stacked on
-    // top by the map panel. Both are free to use with attribution.
+    // OpenFreeMap: free, no key, no request limit, apps allowed with credit.
+    mapStyleUrl: 'https://tiles.openfreemap.org/styles/dark',
+    // Fallback: Esri's dark canvas. Labels are a separate reference layer,
+    // stacked on top by the map panel.
     tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/'
         'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
     tileLabelsUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/'
@@ -170,7 +178,8 @@ class ZetColors extends ThemeExtension<ZetColors> {
     onLiveContainer: Color(0xFF901114),
     inverse: Color(0xFF282E38),
     onInverse: Color(0xFFEBEFF4),
-    // Plain OpenStreetMap raster tiles: free, no key, labelled.
+    mapStyleUrl: 'https://tiles.openfreemap.org/styles/positron',
+    // Fallback: plain OpenStreetMap raster tiles.
     tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     tileSubdomains: [],
     tileAttribution: '© OpenStreetMap contributors',
@@ -206,6 +215,7 @@ class ZetColors extends ThemeExtension<ZetColors> {
     Color? onLiveContainer,
     Color? inverse,
     Color? onInverse,
+    String? mapStyleUrl,
     String? tileUrl,
     String? tileLabelsUrl,
     List<String>? tileSubdomains,
@@ -241,6 +251,7 @@ class ZetColors extends ThemeExtension<ZetColors> {
       onLiveContainer: onLiveContainer ?? this.onLiveContainer,
       inverse: inverse ?? this.inverse,
       onInverse: onInverse ?? this.onInverse,
+      mapStyleUrl: mapStyleUrl ?? this.mapStyleUrl,
       tileUrl: tileUrl ?? this.tileUrl,
       tileLabelsUrl: tileLabelsUrl ?? this.tileLabelsUrl,
       tileSubdomains: tileSubdomains ?? this.tileSubdomains,
@@ -282,6 +293,7 @@ class ZetColors extends ThemeExtension<ZetColors> {
       onLiveContainer: l(onLiveContainer, other.onLiveContainer),
       inverse: l(inverse, other.inverse),
       onInverse: l(onInverse, other.onInverse),
+      mapStyleUrl: t < 0.5 ? mapStyleUrl : other.mapStyleUrl,
       tileUrl: t < 0.5 ? tileUrl : other.tileUrl,
       tileLabelsUrl: t < 0.5 ? tileLabelsUrl : other.tileLabelsUrl,
       tileSubdomains: t < 0.5 ? tileSubdomains : other.tileSubdomains,

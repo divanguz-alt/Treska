@@ -10,10 +10,8 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'feed_engine.dart';
-import 'gtfs_rt.dart';
 import 'gtfs_static.dart';
 import 'models.dart';
-import 'rt_socket.dart';
 
 const String _staticUrl = 'https://zet.hr/gtfs-scheduled/latest';
 const String _rtUrl = 'https://zet.hr/gtfs-rt-protobuf';
@@ -21,8 +19,12 @@ const String _userAgent = 'Treska/2.0 (Flutter; ZET timetable)';
 
 const Duration _rtTimeout = Duration(seconds: 12);
 const Duration _staticTimeout = Duration(minutes: 3);
+// A cached ZIP younger than this is used at startup without asking ZET.
 const Duration _staticMaxAge = Duration(hours: 12);
-const Duration _staticReloadAfter = Duration(hours: 4);
+// A running app asks ZET this often whether the ZIP changed. The request is
+// conditional (ETag / Last-Modified), so an unchanged feed costs a 304, not
+// 18.8 MB.
+const Duration _staticCheckAfter = Duration(hours: 4);
 
 // ── Messages ────────────────────────────────────────────────────────────────
 
@@ -92,7 +94,7 @@ class WorkerTripStopsResult {
 }
 
 class WorkerShape {
-  /// GTFS shape id from the streaming relay (empty when unknown).
+  /// GTFS shape id when already known (empty: resolved from trips.txt).
   final String shapeId;
 
   /// Trip id, used as a fallback when the shape id is missing.
@@ -152,28 +154,20 @@ void zetWorkerMain(SendPort handshake) {
   String zipPath = '';
   final shapeCache = <String, List<double>>{};
   final tripShapeCache = <String, String>{};
-  DateTime? loadedAt;
-  String staticWarning = '';
+  DateTime? checkedAt;
+  // Service day the loaded index was built for; a new day means a reparse.
+  DateTime? indexDay;
   var staticLoading = false;
   var refreshInFlight = false;
   DateTime? lastStaticAttempt;
-
-  // ── Streaming realtime ────────────────────────────────────────────────────
-  // The relay pushes each new feed the moment ZET produces it; the UI isolates
-  // never see the socket, they only get the joined snapshot.
-  RtFeed? lastWireFeed;
-  DateTime? lastPushAt;
-  String rtChannel = '';
-  WorkerRefresh? lastRefresh;
-  RtSocket? socket;
 
   void sendStatic(WorkerStaticReady result) => handshake.send(result);
 
   /// Resolves route geometry for a tapped vehicle.
   ///
   /// A shape is read from the cached ZIP only once and then kept in a small
-  /// LRU-ish cache; vehicles whose relay payload lacked a shape id fall back to
-  /// the trip's stop sequence.
+  /// LRU-ish cache; trips without a shape in trips.txt fall back to their
+  /// stop sequence.
   Future<void> sendShape(WorkerShape message) async {
     var points = const <double>[];
     var shapeId = message.shapeId;
@@ -219,19 +213,42 @@ void zetWorkerMain(SendPort handshake) {
     handshake.send(WorkerShapeResult(id: message.id, points: points));
   }
   
-  Future<void> downloadStatic() async {
+  /// Fetches the static ZIP. Returns false when ZET answered 304 (the cached
+  /// copy is current; its mtime is bumped so the age check restarts).
+  Future<bool> downloadStatic({bool conditional = true}) async {
     final tmp = File('$zipPath.tmp');
     if (await tmp.exists()) {
       try {
         await tmp.delete();
       } catch (_) {}
     }
+    final zip = File(zipPath);
+    final validators = File('$zipPath.validators');
+    final headers = {
+      'User-Agent': _userAgent,
+      'Accept': 'application/zip,*/*',
+    };
+    if (conditional && await zip.exists() && await validators.exists()) {
+      try {
+        final lines = await validators.readAsLines();
+        if (lines.isNotEmpty && lines[0].isNotEmpty) {
+          headers['If-None-Match'] = lines[0];
+        }
+        if (lines.length > 1 && lines[1].isNotEmpty) {
+          headers['If-Modified-Since'] = lines[1];
+        }
+      } catch (_) {}
+    }
     final request = http.Request('GET', Uri.parse(_staticUrl))
-      ..headers.addAll({
-        'User-Agent': _userAgent,
-        'Accept': 'application/zip,*/*',
-      });
+      ..headers.addAll(headers);
     final response = await request.send().timeout(_staticTimeout);
+    if (response.statusCode == 304) {
+      await response.stream.drain<void>();
+      try {
+        await zip.setLastModified(DateTime.now());
+      } catch (_) {}
+      return false;
+    }
     if (response.statusCode != 200) {
       throw Exception('HTTP ${response.statusCode}');
     }
@@ -248,15 +265,24 @@ void zetWorkerMain(SendPort handshake) {
       throw Exception('premali ZIP ($length B)');
     }
     await tmp.rename(zipPath);
+    try {
+      await validators.writeAsString(
+          '${response.headers['etag'] ?? ''}\n'
+          '${response.headers['last-modified'] ?? ''}\n');
+    } catch (_) {}
+    return true;
   }
 
-  Future<bool> ensureStatic({bool force = false}) async {
+  /// Makes sure an index for today is loaded. [force] re-downloads
+  /// unconditionally (the RASPORED button); [check] asks ZET whether the ZIP
+  /// changed even though the cache is still fresh (the periodic check).
+  Future<bool> ensureStatic({bool force = false, bool check = false}) async {
     if (staticLoading) return false;
     staticLoading = true;
     lastStaticAttempt = DateTime.now();
     try {
       final file = File(zipPath);
-      var needDownload = force;
+      var needDownload = force || check;
       var fromCache = false;
 
       if (!needDownload && await file.exists()) {
@@ -276,10 +302,12 @@ void zetWorkerMain(SendPort handshake) {
         needDownload = true;
       }
 
+      var changed = force;
       if (needDownload) {
         try {
-          await downloadStatic();
-          fromCache = false;
+          changed = await downloadStatic(conditional: !force);
+          checkedAt = DateTime.now();
+          fromCache = !changed;
         } catch (e) {
           if (!await file.exists() || await file.length() < 10000) {
             sendStatic(WorkerStaticReady(
@@ -288,16 +316,26 @@ void zetWorkerMain(SendPort handshake) {
             ));
             return false;
           }
-          staticWarning = 'Keširani raspored (preuzimanje nije uspjelo)';
+          // Keep the cached copy and try again at the next periodic check.
+          checkedAt = DateTime.now();
           fromCache = true;
         }
       }
+      if (changed) {
+        shapeCache.clear();
+        tripShapeCache.clear();
+      }
 
-      final parsed = await parseStaticZip(zipPath, DateTime.now());
+      // An unchanged ZIP only needs a reparse for a new service day.
+      final now = DateTime.now();
+      final day = serviceDayStart(now);
+      if (staticData != null && !changed && indexDay == day) return true;
+
+      final parsed = await parseStaticZip(zipPath, now);
       staticData = parsed;
       engine = FeedEngine(parsed);
-      loadedAt = DateTime.now();
-      staticWarning = '';
+      checkedAt ??= now;
+      indexDay = day;
 
       sendStatic(WorkerStaticReady(
         ok: true,
@@ -364,12 +402,16 @@ void zetWorkerMain(SendPort handshake) {
     if (refreshInFlight) return;
     refreshInFlight = true;
     try {
-      // Reload the static feed every few hours so service changes show up.
-      if (staticData != null &&
-          loadedAt != null &&
-          DateTime.now().difference(loadedAt!) > _staticReloadAfter &&
-          !staticLoading) {
-        await ensureStatic();
+      // After midnight the index must switch to the new service day (and
+      // carry yesterday's late trips); every few hours, ask ZET whether the
+      // timetable changed.
+      if (staticData != null && !staticLoading) {
+        final now = DateTime.now();
+        final dueCheck = checkedAt == null ||
+            now.difference(checkedAt!) > _staticCheckAfter;
+        if (dueCheck || serviceDayStart(now) != indexDay) {
+          await ensureStatic(check: dueCheck);
+        }
       }
 
       if (staticData == null) {
@@ -386,18 +428,9 @@ void zetWorkerMain(SendPort handshake) {
       }
 
       final errors = StringBuffer();
-      if (staticWarning.isNotEmpty) errors.write(staticWarning);
 
-      // Vehicles come from the streaming relay when it is live (newest fix,
-      // ~10 s cadence). Stop predictions (StopTimeUpdate) are not part of that
-      // stream, so the REST feed still supplies them; it is fetched every
-      // refresh and merged in by the engine.
-      final pushed = lastWireFeed != null &&
-          lastPushAt != null &&
-          DateTime.now().difference(lastPushAt!) < const Duration(seconds: 45);
-
+      // One protobuf carries both vehicle fixes and stop predictions.
       final rtBytes = await fetchRealtime(errors);
-      if (rtBytes != null) rtChannel = pushed ? 'WS+REST' : 'REST';
 
       final snapshot = engine!.refresh(
         lat: message.lat,
@@ -405,7 +438,6 @@ void zetWorkerMain(SendPort handshake) {
         radiusM: message.radiusM,
         pinnedStopIds: message.pinnedStopIds.toSet(),
         rtBytes: rtBytes,
-        rtFeed: pushed ? lastWireFeed : null,
         now: DateTime.now(),
       );
 
@@ -413,21 +445,9 @@ void zetWorkerMain(SendPort handshake) {
       if (rtBytes == null && errors.isNotEmpty) {
         error = error.isEmpty ? errors.toString() : '$error | $errors';
       }
-      if (staticWarning.isNotEmpty) {
-        error = error.isEmpty
-            ? staticWarning
-            : '$error | $staticWarning';
-      }
-
-      final streaming = pushed || socket?.connected == true;
-      final withChannel = snapshot.copyWith(
-        stats: snapshot.stats.copyWith(
-          streaming: streaming,
-        ),
-      );
 
       handshake.send(WorkerFeed(
-        error.isEmpty ? withChannel : withChannel.copyWith(error: error),
+        error.isEmpty ? snapshot : snapshot.copyWith(error: error),
       ));
     } catch (e) {
       handshake.send(WorkerFeed(FeedSnapshot(
@@ -439,32 +459,11 @@ void zetWorkerMain(SendPort handshake) {
     }
   }
 
-  void startSocket() {
-    if (socket != null) return;
-    socket = RtSocket(
-      onError: (e) => rtChannel = rtChannel.isEmpty ? e : rtChannel,
-      onFeed: (feed, receivedAt) async {
-        lastWireFeed = feed;
-        lastPushAt = receivedAt;
-        rtChannel = 'WS';
-        // Recompute immediately when a static feed is loaded; otherwise the
-        // pending refresh will pick the feed up.
-        final pending = lastRefresh;
-        if (pending != null && staticData != null && !refreshInFlight) {
-          await doRefresh(pending);
-        }
-      },
-    );
-    socket!.start();
-  }
-
   inbox.listen((message) {
     if (message is WorkerInit) {
       zipPath = '${message.cacheDir}/gtfs_static.zip';
       ensureStatic(force: false);
-      startSocket();
     } else if (message is WorkerRefresh) {
-      lastRefresh = message;
       doRefresh(message);
     } else if (message is WorkerTripStops) {
       final result = engine?.tripStops(

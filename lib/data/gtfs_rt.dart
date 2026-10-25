@@ -24,7 +24,12 @@ class RtEntity {
 class RtTripDescriptor {
   final String tripId;
   final String routeId;
-  const RtTripDescriptor({this.tripId = '', this.routeId = ''});
+
+  /// Service date of this run, `YYYYMMDD` (field 3). Tells yesterday's
+  /// after-midnight run apart from today's run of the same trip id.
+  final String startDate;
+  const RtTripDescriptor(
+      {this.tripId = '', this.routeId = '', this.startDate = ''});
 }
 
 class RtPosition {
@@ -83,20 +88,15 @@ class RtTripUpdate {
   final List<RtStopTimeUpdate> stopTimeUpdates;
 
   /// Trip-level delay in seconds (GTFS-RT field 5). ZET currently leaves this
-  /// empty and reports delays per stop instead. The streaming relay fills it
-  /// per vehicle from its own `reportDelays`.
+  /// empty and reports delays per stop instead.
   final int delay;
   final bool hasDelay;
-
-  /// Shape id from the relay (`<route>_<direction>`); empty for protobuf feeds.
-  final String shapeId;
 
   const RtTripUpdate({
     required this.trip,
     required this.stopTimeUpdates,
     this.delay = 0,
     this.hasDelay = false,
-    this.shapeId = '',
   });
 }
 
@@ -182,6 +182,7 @@ class _Reader {
 RtTripDescriptor _trip(_Reader r) {
   var tripId = '';
   var routeId = '';
+  var startDate = '';
   while (r.more) {
     final tag = r.varint();
     final field = tag >> 3;
@@ -189,13 +190,16 @@ RtTripDescriptor _trip(_Reader r) {
     switch (field) {
       case 1:
         tripId = r.str();
+      case 3:
+        startDate = r.str();
       case 5:
         routeId = r.str();
       default:
         r.skip(wire);
     }
   }
-  return RtTripDescriptor(tripId: tripId, routeId: routeId);
+  return RtTripDescriptor(
+      tripId: tripId, routeId: routeId, startDate: startDate);
 }
 
 RtPosition _position(_Reader r) {
@@ -241,14 +245,14 @@ RtVehiclePosition _vehicle(_Reader r) {
     switch (field) {
       case 1:
         trip = _trip(r.sub());
-      case 3:
+      case 2:
         position = _position(r.sub());
-      case 4:
+      case 3:
         sequence = r.varint();
       case 5:
-        stopId = r.str();
-      case 6:
         timestamp = r.varint();
+      case 7:
+        stopId = r.str();
       default:
         r.skip(wire);
     }
@@ -389,7 +393,8 @@ RtFeed parseRtFeed(Uint8List data) {
   return RtFeed(entities, timestamp: timestamp);
 }
 
-/// Reads `header.timestamp` (field 1) so the board can show how old the feed is.
+/// Reads `header.timestamp` (field 3; 1 is the version string, 2 the
+/// incrementality) so the board can show how old the feed is.
 int _header(_Reader r) {
   var timestamp = 0;
   while (r.more) {
@@ -397,7 +402,7 @@ int _header(_Reader r) {
     final field = tag >> 3;
     final wire = tag & 7;
     switch (field) {
-      case 1:
+      case 3 when wire == 0:
         timestamp = r.varint();
       default:
         r.skip(wire);

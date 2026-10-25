@@ -31,7 +31,7 @@ class _DiagnosticsSheet extends StatelessWidget {
     final age = stats.feedTimestamp > 0 ? stats.ageSecAt(DateTime.now()) : -1;
 
     final rows = <(String, String)>[
-      ('Kanal', stats.streaming ? 'WS (stream)' : 'REST (poll)'),
+      ('Izvor', 'zet.hr, svakih 5 s'),
       ('Raspored', status.staticReady ? 'učitan' : 'nije učitan'),
       ('Stajališta', '${status.stopCount}'),
       ('Aktivni polasci', '${status.tripCount}'),

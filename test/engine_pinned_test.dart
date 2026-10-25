@@ -73,4 +73,67 @@ void main() {
           reason: '${a.routeShortName} at ${a.time} is outside the hour');
     }
   }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('vehicles from ZET\'s own protobuf are measured, not estimated',
+      () async {
+    final rt = File('/tmp/zet_rt.bin');
+    if (!rt.existsSync()) {
+      markTestSkipped('fixture missing');
+      return;
+    }
+    final bytes = rt.readAsBytesSync();
+    // Use the feed's own day so its trip ids resolve against the timetable.
+    final engine = await load(DateTime.now());
+    if (engine == null) {
+      markTestSkipped('fixture missing');
+      return;
+    }
+    final snap = engine.refresh(
+      lat: 45.8143,
+      lon: 15.9790,
+      rtBytes: bytes,
+      now: DateTime.now(),
+    );
+    final measured = snap.vehicles.where((v) => !v.estimated).length;
+    expect(measured, greaterThan(50),
+        reason: 'VehiclePosition fixes must be decoded from the protobuf');
+    expect(snap.stats.feedTimestamp, greaterThan(1700000000));
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('after midnight the board shows yesterday\'s night trams', () async {
+    // Tue 27 Oct 2026, 00:30. Night trams 31–34 are timetabled as 24:xx–28:xx
+    // on Monday's service, which also runs on Tuesday under the same trip ids.
+    final now = DateTime(2026, 10, 27, 0, 30);
+    final engine = await load(now);
+    if (engine == null) {
+      markTestSkipped('fixture missing');
+      return;
+    }
+    expect(engine.data.carryDate, '20261026');
+    expect(engine.data.carryTripIdx, isNotEmpty);
+
+    final snap = engine.refresh(
+      lat: 45.8131,
+      lon: 15.9772,
+      rtBytes: null,
+      now: now,
+      radiusM: 1200,
+    );
+    final rows = [for (final s in snap.tramStops) ...s.arrivals];
+    expect(rows.map((a) => a.routeShortName),
+        contains(anyOf('31', '32', '33', '34')));
+    for (final a in rows) {
+      expect(a.time.difference(now).inMinutes, inInclusiveRange(-2, 60),
+          reason: '${a.routeShortName} at ${a.time}');
+    }
+
+    // The same id resolves to Monday's run with Monday's start date and to
+    // Tuesday's run otherwise.
+    final id = engine.data.carryTripIdx.keys
+        .firstWhere(engine.data.tripIdx.containsKey);
+    expect(engine.data.tripFor(id, startDate: '20261026'),
+        engine.data.carryTripIdx[id]);
+    expect(engine.data.tripFor(id, startDate: '20261027'),
+        engine.data.tripIdx[id]);
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
