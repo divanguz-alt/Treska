@@ -229,7 +229,7 @@ class FeedStats {
   /// Seconds between the newest vehicle fix and the feed timestamp.
   final int positionAgeSec;
 
-  /// Where the last realtime protobuf came from ('relay', 'zet.hr', or '').
+  /// Where the last realtime protobuf came from ('push', 'relay', 'zet.hr', or '').
   final String rtSource;
 
   const FeedStats({

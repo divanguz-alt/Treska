@@ -2,3 +2,12 @@ name = "treska-relay"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = true
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "FeedHub"
+
+# Free plan: Durable Objects must be SQLite-backed.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FeedHub"]

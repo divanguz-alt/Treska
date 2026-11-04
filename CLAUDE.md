@@ -34,7 +34,8 @@ lib/
     gtfs_rt.dart         hand-written GTFS-Realtime protobuf reader
     update_service.dart  GitHub Releases check + APK download/install
     feed_engine.dart     static+RT join: nearby stops, arrivals, vehicles
-    worker.dart          background isolate: download, parse, RT polling
+    worker.dart          background isolate: download, parse, RT push + polling
+    rt_push.dart         WebSocket client for the relay's push hub
     feed_controller.dart UI-facing ValueNotifiers + lifecycle + 5 s poll loop
     location_service.dart geolocator wrapper with cache and fallback
   ui/
@@ -119,7 +120,23 @@ Measured on the author's machine (Dart VM, real ZET feed):
 
 ### Realtime source
 
-ZET's own protobuf, `https://zet.hr/gtfs-rt-protobuf`, polled every 5 s.
+ZET's own protobuf, `https://zet.hr/gtfs-rt-protobuf`. Three paths, fastest
+first, all carrying ZET's bytes unchanged:
+
+1. **Push** (`lib/data/rt_push.dart`, relay `/ws`): one WebSocket per app to
+   the relay's `FeedHub` Durable Object. While anyone is connected the hub
+   checks ZET (rests 7 s after each new feed, then every 1 s; every 5 s if ZET
+   stalls 30 s) and sends each new feed gzipped (~25 KB instead of ~86 KB) to
+   every client. Measured 2026-11-04: a new feed reaches the client 0.5-2 s
+   after its header timestamp, ~33k hub checks/day while connected (free plan:
+   100k DO requests/day; outgoing WebSocket messages are not billed). Each
+   pushed feed triggers an immediate refresh with the last request's
+   position. A pushed feed younger than 25 s replaces the poll's HTTP
+   request; the socket closes 30 s after the app stops asking (background).
+2. **Poll via relay** every 5 s, used whenever push is down or quiet.
+3. **Poll zet.hr directly**, when the relay fails.
+
+The 5 s poll loop itself never changes.
 When `_rtRelayUrl` in `worker.dart` is set, the poll goes to Treska's
 Cloudflare Worker (`relay/`) first: it passes ZET's bytes through unchanged,
 keeps one copy for 1 s per location (measured: adds ≤1 s) (in memory + Cache API), dedupes
@@ -166,6 +183,7 @@ https://zet.hr/gtfs-scheduled/latest   ~18.8 MB ZIP, cached on device
 https://zet.hr/gtfs-rt-protobuf        ~85 KB protobuf, polled every 5 s
 https://treska-relay.treska-relay.workers.dev/rt      same bytes via relay/
 https://treska-relay.treska-relay.workers.dev/static  timetable ZIP via relay/
+wss://treska-relay.treska-relay.workers.dev/ws       push, gzipped protobuf
 https://tiles.openfreemap.org/styles/  vector map (positron / dark)
 ```
 

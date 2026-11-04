@@ -1,4 +1,16 @@
-# HANDOFF — Treska (ZET 2) v2.1.10
+# HANDOFF — Treska (ZET 2) v2.1.11
+
+## v2.1.11 (2026-11-04)
+
+- Push: relay `/ws` (Durable Object `FeedHub`, besplatni plan, SQLite) šalje
+  svaki novi ZET feed gzipom (~25 KB) svim spojenim aplikacijama. Hub odmara
+  7 s nakon novog feeda, onda provjerava svake 1 s (5 s ako ZET zastane 30 s);
+  bez klijenata ne zove ZET. Izmjereno: klijent dobije feed 0,5–2 s nakon
+  ZET-ovog zaglavlja, ~33k provjera/dan dok je netko spojen.
+- App: `lib/data/rt_push.dart`; svaki push odmah osvježi tablu/kartu.
+  Polling 5 s ostaje kao rezerva (relay → zet.hr). Izvor u Dijagnostici: push.
+- Emulator je 2026-11-04 parsirao raspored 30–36 s (jutros 3 s), isto i bez
+  pusha — opterećen emulator, nije regresija.
 
 ## v2.1.10 (2026-11-04)
 

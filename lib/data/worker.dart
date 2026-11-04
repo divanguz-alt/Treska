@@ -12,17 +12,23 @@ import 'package:http/http.dart' as http;
 import 'feed_engine.dart';
 import 'gtfs_static.dart';
 import 'models.dart';
+import 'rt_push.dart';
 
 const String _staticUrl = 'https://zet.hr/gtfs-scheduled/latest';
 const String _rtUrl = 'https://zet.hr/gtfs-rt-protobuf';
 // Treska's own Cloudflare Worker (relay/): passes ZET's protobuf through
 // unchanged, so ZET sees one reader instead of every phone. Empty means poll
 // ZET directly. ZET stays the fallback whenever the relay fails.
-const String _relayBase = 'https://treska-relay.treska-relay.workers.dev';
+const String _relayHost = 'treska-relay.treska-relay.workers.dev';
+const String _relayBase = 'https://$_relayHost';
 const String _rtRelayUrl = '$_relayBase/rt';
 // The same Worker streams the timetable ZIP through Cloudflare's cache, which
 // also helps where zet.hr itself is unreachable.
 const String _staticRelayUrl = '$_relayBase/static';
+// Push: the relay sends each new feed over a WebSocket ~1 s after ZET
+// publishes it. Polling continues underneath and takes over whenever the
+// socket is down or quiet. Empty disables push.
+const String _pushUrl = 'wss://$_relayHost/ws';
 const String _userAgent = 'Treska/2.0 (Flutter; ZET timetable)';
 
 const Duration _rtTimeout = Duration(seconds: 12);
@@ -31,6 +37,12 @@ const Duration _relayTimeout = Duration(seconds: 4);
 // After a relay failure, poll ZET directly for this long before trying again.
 const Duration _relayBackoff = Duration(minutes: 2);
 const Duration _staticTimeout = Duration(minutes: 3);
+// A pushed feed younger than this replaces the poll's HTTP request. ZET
+// publishes every ~10-12 s and the relay only sends changes.
+const Duration _pushFreshFor = Duration(seconds: 25);
+// The app stops asking for refreshes when it is not visible; the socket is
+// closed after this long without a request.
+const Duration _pushIdleAfter = Duration(seconds: 30);
 // Time to the first response byte from the relay before falling back to ZET.
 const Duration _staticRelayTimeout = Duration(seconds: 30);
 // A cached ZIP younger than this is used at startup without asking ZET.
@@ -175,6 +187,13 @@ void zetWorkerMain(SendPort handshake) {
   var refreshInFlight = false;
   DateTime? lastStaticAttempt;
   DateTime? relayDownUntil;
+  RtPush? push;
+  Uint8List? pushBytes;
+  DateTime? pushAt;
+  Timer? pushIdle;
+  // The last refresh the app asked for, replayed when a pushed feed arrives.
+  WorkerRefresh? lastRequest;
+  var rerunForPush = false;
 
   void sendStatic(WorkerStaticReady result) => handshake.send(result);
 
@@ -474,7 +493,13 @@ void zetWorkerMain(SendPort handshake) {
       final errors = StringBuffer();
 
       // One protobuf carries both vehicle fixes and stop predictions.
-      final rt = await fetchRealtime(errors);
+      final pushed = pushBytes;
+      final pushFresh = pushed != null &&
+          push?.connected == true &&
+          pushAt != null &&
+          DateTime.now().difference(pushAt!) < _pushFreshFor;
+      final rt =
+          pushFresh ? (pushed, 'push') : await fetchRealtime(errors);
       final rtBytes = rt?.$1;
 
       final snapshot = engine!.refresh(
@@ -502,7 +527,35 @@ void zetWorkerMain(SendPort handshake) {
       )));
     } finally {
       refreshInFlight = false;
+      if (rerunForPush) {
+        rerunForPush = false;
+        final request = lastRequest;
+        if (request != null) unawaited(doRefresh(request));
+      }
     }
+  }
+
+  void onPushFeed(Uint8List bytes) {
+    pushBytes = bytes;
+    pushAt = DateTime.now();
+    final request = lastRequest;
+    if (request == null) return;
+    if (refreshInFlight) {
+      rerunForPush = true;
+    } else {
+      unawaited(doRefresh(request));
+    }
+  }
+
+  void keepPushAlive() {
+    if (_pushUrl.isEmpty) return;
+    push ??= RtPush(url: _pushUrl, onFeed: onPushFeed)..start();
+    pushIdle?.cancel();
+    pushIdle = Timer(_pushIdleAfter, () {
+      push?.close();
+      push = null;
+      pushBytes = null;
+    });
   }
 
   inbox.listen((message) {
@@ -510,6 +563,8 @@ void zetWorkerMain(SendPort handshake) {
       zipPath = '${message.cacheDir}/gtfs_static.zip';
       ensureStatic(force: false);
     } else if (message is WorkerRefresh) {
+      lastRequest = message;
+      keepPushAlive();
       doRefresh(message);
     } else if (message is WorkerTripStops) {
       final result = engine?.tripStops(

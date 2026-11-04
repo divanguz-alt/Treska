@@ -6,6 +6,8 @@
 // protobuf and shows its own header timestamp, so a stale copy is visible
 // as such in the app.
 
+import { DurableObject } from 'cloudflare:workers';
+
 const RT_URL = 'https://zet.hr/gtfs-rt-protobuf';
 const STATIC_URL = 'https://zet.hr/gtfs-scheduled/latest';
 // The ~19 MB timetable ZIP changes a few times a week; edge copies live 1 h.
@@ -101,6 +103,113 @@ async function realtime(ctx) {
   }
 }
 
+// ── Push ────────────────────────────────────────────────────────────────────
+//
+// /ws: every app keeps one WebSocket to a single FeedHub. While at least one
+// client is connected, the hub checks ZET (see PUSH_* below) and sends the
+// protobuf (gzipped) to everyone as soon as it changes. Outgoing WebSocket
+// messages are not billed by Cloudflare, so the cost is the hub's own checks
+// plus one request per connection, not one per client per poll.
+
+// ZET publishes a new feed every ~10-12 s. Right after one arrives the next
+// is not due for a while, so the hub rests, then checks every second until it
+// shows up: a new feed reaches the apps within ~1 s, with ~4 checks per cycle
+// (~30 000 a day while anyone is connected, inside the free plan's 100 000).
+// If ZET stalls, checks slow down so a long outage cannot burn the quota.
+const PUSH_REST_MS = 7000;
+const PUSH_CHECK_MS = 1000;
+const PUSH_STALLED_AFTER_MS = 30000;
+const PUSH_STALLED_CHECK_MS = 5000;
+
+const sameBytes = (a, b) => {
+  if (a.byteLength !== b.byteLength) return false;
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  return true;
+};
+
+async function gzip(buffer) {
+  const stream = new Blob([buffer]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Response(stream).arrayBuffer();
+}
+
+export class FeedHub extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.last = null; // { body, at } of the last feed sent
+    this.lastGz = null;
+    this.changedAt = 0; // when the feed last changed
+  }
+
+  async fetch() {
+    const [client, server] = Object.values(new WebSocketPair());
+    // Hibernation API: clients send nothing, so connected sockets cost no
+    // duration on their own; only the check loop below keeps the hub awake.
+    this.ctx.acceptWebSocket(server);
+    if (this.lastGz && Date.now() - this.last.at < STALE_MS) server.send(this.lastGz);
+    if ((await this.ctx.storage.getAlarm()) == null) {
+      await this.ctx.storage.setAlarm(Date.now());
+    }
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async alarm() {
+    // Nobody listening: stop asking ZET until the next client connects.
+    if (this.ctx.getWebSockets().length === 0) return;
+    // Rearm first, so a failure below cannot end the loop.
+    const stalled = Date.now() - this.changedAt > PUSH_STALLED_AFTER_MS;
+    await this.ctx.storage.setAlarm(
+      Date.now() + (stalled ? PUSH_STALLED_CHECK_MS : PUSH_CHECK_MS));
+    let copy;
+    try {
+      copy = await fetchUpstream();
+    } catch {
+      return; // keep the last copy; the next check retries
+    }
+    if (this.last && sameBytes(this.last.body, copy.body)) {
+      this.last.at = copy.at;
+      return;
+    }
+    // The first copy after a cold start is at an unknown point in ZET's cycle,
+    // so only a real change starts the rest period.
+    if (this.last) await this.ctx.storage.setAlarm(Date.now() + PUSH_REST_MS);
+    this.last = copy;
+    this.changedAt = copy.at;
+    this.lastGz = await gzip(copy.body);
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(this.lastGz);
+      } catch {
+        // A socket that is already closing; its close handler cleans up.
+      }
+    }
+  }
+
+  webSocketMessage() {}
+
+  webSocketClose(ws, code) {
+    try {
+      ws.close(code, 'closed');
+    } catch {}
+  }
+
+  webSocketError(ws) {
+    try {
+      ws.close(1011, 'error');
+    } catch {}
+  }
+}
+
+function push(request, env) {
+  if (request.headers.get('Upgrade') !== 'websocket') {
+    return new Response('expected websocket', { status: 426 });
+  }
+  // One hub for all of Zagreb, placed in eastern Europe near ZET.
+  const hub = env.HUB.get(env.HUB.idFromName('zagreb'), { locationHint: 'eeur' });
+  return hub.fetch(request);
+}
+
 // Streams the timetable ZIP through Cloudflare's cache. The app's conditional
 // headers are forwarded, so an unchanged feed is still a 304.
 async function timetable(request) {
@@ -127,6 +236,7 @@ export default {
     }
     if (pathname === '/rt') return realtime(ctx);
     if (pathname === '/static') return timetable(request);
+    if (pathname === '/ws') return push(request, env);
     if (pathname === '/') return new Response('Treska relay\n');
     return new Response('not found', { status: 404 });
   },
