@@ -24,9 +24,10 @@ class SettingsController extends ChangeNotifier {
   Set<String> get favorites => _favorites;
 
   bool _showTrams = true;
-  bool _showBuses = true;
+  bool _showBuses = false;
 
-  /// Board filter, global and remembered. Never both off.
+  /// Board and map filter, global and remembered. Never both off. Trams only
+  /// by default: the map gets slow with every vehicle on it.
   bool get showTrams => _showTrams;
   bool get showBuses => _showBuses;
 
@@ -98,7 +99,7 @@ class SettingsController extends ChangeNotifier {
         notifyListeners();
       }
       final trams = prefs.getBool(_showTramsKey) ?? true;
-      final buses = prefs.getBool(_showBusesKey) ?? true;
+      final buses = prefs.getBool(_showBusesKey) ?? false;
       if (trams || buses) {
         _showTrams = trams;
         _showBuses = buses;

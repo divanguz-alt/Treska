@@ -11,8 +11,8 @@ stajališta.
 - **Svježina podataka** je vidljiva: `◉ SADA` ili `◉ N min` uz sat u zaglavlju,
   pa se odmah vidi koliko su podaci stari.
 - **Tramvaji / autobusi** su dva neovisna filtra iznad table: samo tramvaji,
-  samo autobusi ili oboje u jednoj listi po vremenu. Odabir se pamti; karta
-  uvijek prikazuje sva vozila.
+  samo autobusi ili oboje u jednoj listi po vremenu. Odabir se pamti, karta
+  ga prati. Zadano su uključeni samo tramvaji.
 - **ZET zaslon** (Postavke → Izgled dolazaka): svaki dolazak se crta kao LED
   natpis s čela vozila, s bojom po izboru i pomicanjem predugih odredišta.
 - **Light + dark** tema (Sustav / Svijetlo / Tamno) u izborniku gore desno.

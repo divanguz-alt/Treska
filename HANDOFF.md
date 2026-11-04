@@ -1,4 +1,10 @@
-# HANDOFF — Treska (ZET 2) v2.1.12
+# HANDOFF — Treska (ZET 2) v2.1.13
+
+## v2.1.13 (2026-11-04)
+
+- Karta opet prikazuje samo odabrane vrste: prati chipove Tramvaji/Autobusi.
+  Sva vozila odjednom (~350 markera) zapinjala su na korisnikovu mobitelu.
+  Zadani filtar je sada samo tramvaji (`show_buses` zadano `false`).
 
 ## v2.1.12 (2026-11-04)
 
@@ -6,8 +12,8 @@
   README §1, folder je u `.gitignore`): chipovi su neovisni, `show_trams` /
   `show_buses`, ne mogu oba biti isključena. Tabla spaja tramvajska i
   autobusna stajališta istog imena (`combineModes` u `models.dart`). Chipovi
-  se skrivaju kad stanica ima samo jednu vrstu. Karta više ne filtrira po
-  vrsti. Zvjezdica sprema ime za vrste koje se prikazuju.
+  se skrivaju kad stanica ima samo jednu vrstu. Karta u 2.1.12 nije
+  filtrirala po vrsti (vraćeno u 2.1.13). Zvjezdica sprema ime za vrste koje se prikazuju.
 - ZET zaslon (§2–7, varijanta 1b): `lib/ui/led/` (font, čisti `layoutLed`,
   `LedPanel`, `LedClockScope`), `lib/ui/widgets/zet_arrival_row.dart`.
   `test/led_layout_test.dart` uspoređuje raspored točku po točku s

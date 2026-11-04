@@ -150,6 +150,10 @@ void main() {
 
   test('the filter cannot turn both modes off and is remembered', () async {
     final settings = await _settings({});
+    expect(settings.shownModes, kModeTram, reason: 'trams only by default');
+    expect(settings.toggleShown(kModeTram), isFalse,
+        reason: 'the only mode on stays on');
+    expect(settings.toggleShown(kModeBus), isTrue);
     expect(settings.shownModes, kModeTram | kModeBus);
     expect(settings.toggleShown(kModeTram), isTrue);
     expect(settings.shownModes, kModeBus);
@@ -168,7 +172,8 @@ void main() {
   });
 
   testWidgets('both chips on: one mixed list sorted by time', (tester) async {
-    final settings = await _settings({});
+    final settings =
+        await _settings({'show_trams': true, 'show_buses': true});
     await _pumpBoard(
       tester,
       settings,

@@ -122,6 +122,7 @@ class _MapPanelState extends State<MapPanel> {
   /// Which stop disc a tap landed on (flutter_map's layer hit testing).
   final LayerHitNotifier<String> _stopHits = ValueNotifier(null);
   List<StopInfo>? _circlesStops;
+  int _circlesModes = 0;
   Brightness? _circlesBrightness;
   Set<String> _circlesFavorites = const {};
 
@@ -404,15 +405,18 @@ class _MapPanelState extends State<MapPanel> {
     widget.onStopSelected(id);
   }
 
-  /// The map shows trams and buses together; the board's filter does not
-  /// touch it.
+  /// Stops of the modes the Tramvaji/Autobusi chips let through. All
+  /// vehicles at once made the map stutter on a phone (2.1.12), so the map
+  /// follows the board filter, which defaults to trams only.
   List<CircleMarker<String>> _circlesFor(
     BuildContext context,
     List<StopInfo> all,
+    int modes,
   ) {
     final brightness = Theme.of(context).brightness;
     final favorites = widget.settings.favorites;
     if (identical(_circlesStops, all) &&
+        _circlesModes == modes &&
         _circlesBrightness == brightness &&
         setEquals(_circlesFavorites, favorites) &&
         _stopCircles.isNotEmpty) {
@@ -423,7 +427,7 @@ class _MapPanelState extends State<MapPanel> {
     // Favourites are drawn as stars on top instead, so skip their disc.
     _stopCircles = [
       for (final s in all)
-        if (!_isFavoriteOnMap(s))
+        if ((s.modes & modes) != 0 && !_isFavoriteOnMap(s, modes))
           CircleMarker<String>(
             point: LatLng(s.lat, s.lon),
             hitValue: s.id,
@@ -435,14 +439,17 @@ class _MapPanelState extends State<MapPanel> {
           ),
     ];
     _circlesStops = all;
+    _circlesModes = modes;
     _circlesBrightness = brightness;
     _circlesFavorites = Set<String>.of(favorites);
     return _stopCircles;
   }
 
-  bool _isFavoriteOnMap(StopInfo s) =>
-      widget.settings.isFavoriteOnMap(s, kModeTram) ||
-      widget.settings.isFavoriteOnMap(s, kModeBus);
+  bool _isFavoriteOnMap(StopInfo s, int modes) =>
+      ((modes & kModeTram) != 0 &&
+          widget.settings.isFavoriteOnMap(s, kModeTram)) ||
+      ((modes & kModeBus) != 0 &&
+          widget.settings.isFavoriteOnMap(s, kModeBus));
 
   @override
   Widget build(BuildContext context) {
@@ -471,8 +478,14 @@ class _MapPanelState extends State<MapPanel> {
             builder: (context, _) {
               final pos = widget.feed.position.value;
               final center = LatLng(pos.lat, pos.lon);
-              final vehicles = widget.feed.vehicles.value;
-              final circles = _circlesFor(context, widget.feed.stops.value);
+              final modes = widget.settings.shownModes;
+              final vehicles = modes == kModeTram | kModeBus
+                  ? widget.feed.vehicles.value
+                  : widget.feed.vehicles.value
+                      .where((v) => v.isTram == (modes == kModeTram))
+                      .toList(growable: false);
+              final circles =
+                  _circlesFor(context, widget.feed.stops.value, modes);
               final radius = widget.settings.radiusM;
 
               StopInfo? focusedStop;
@@ -486,13 +499,13 @@ class _MapPanelState extends State<MapPanel> {
               }
               final selectedShape = _selectedShape;
               final selectedVehicle = _selectedVehicle;
-              // Every platform of a name saved for a mode it serves is a star
+              // Every platform of a name saved for a mode on the map is a star
               // instead of a disc.
               final favoriteStops = widget.settings.favorites.isEmpty
                   ? const <StopInfo>[]
                   : [
                       for (final s in widget.feed.stops.value)
-                        if (_isFavoriteOnMap(s)) s,
+                        if (_isFavoriteOnMap(s, modes)) s,
                     ];
 
               return FlutterMap(
