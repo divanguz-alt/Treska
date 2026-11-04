@@ -28,9 +28,9 @@ filtrom i vrtjela animaciju po svakom redu. ZET 2 radi ovako:
 - pozadinski izolat preuzima i parsira raspored **jednom** (≈580 ms), drži
   kompaktni indeks u `Int32List` strukturama i tamo spaja realtime podatke;
 - UI dobiva samo gotov, mali snapshot (5 stajališta × 10 dolazaka + vozila);
-- vozila dolaze **WebSocketom** (~10 s, isti izvor koji koristi
-  zet.skoljka.org) čim ih ZET objavi, a `stop_time_update` prognoze i dalje
-  stižu REST-om svakih 5 s; ako veza padne, sve se vraća na REST;
+- vozila i `stop_time_update` prognoze stižu iz jednog ZET-ovog protobufa
+  svakih 5 s, preko vlastitog Cloudflare relaya (`relay/`) ili izravno sa
+  ZET-a ako relay ne odgovara;
 - osvježavanje je svakih 5 s, pauzira se kad je aplikacija u pozadini;
 - karta i tabla se osvježavaju odvojeno, jedna animacija za cijeli ekran.
 
@@ -62,9 +62,8 @@ i dopuštenje za lokaciju; bez GPS-a app radi oko Zagrebačkog glavnog kolodvora
 ## Podaci
 
 - raspored: <https://zet.hr/gtfs-scheduled/latest>
-- realtime (prognoze): <https://zet.hr/gtfs-rt-protobuf>
-- realtime (vozila, stream): `wss://zet.skoljka.org/ws-v4` — javni relay otvorenog
-  koda za zet.skoljka.org; koristi se samo za brže pozicije, uz REST zamjenu.
-- karta: OpenStreetMap (light) / Esri Dark Gray (dark)
+- realtime (vozila i prognoze): <https://zet.hr/gtfs-rt-protobuf>, preko
+  relaya iz `relay/` (Cloudflare Worker, prosljeđuje iste bajtove)
+- karta: OpenFreeMap (positron / dark), © OpenMapTiles © OpenStreetMap
 
 Aplikacija nije povezana sa ZET-om.

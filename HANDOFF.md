@@ -1,4 +1,15 @@
-# HANDOFF — Treska (ZET 2) v2.1.9
+# HANDOFF — Treska (ZET 2) v2.1.10
+
+## v2.1.10 (2026-11-04)
+
+- Vlastiti Cloudflare Worker relay (`relay/`, deploy: `cd relay && npx wrangler
+  deploy`, račun korisnika). `/rt` prosljeđuje ZET protobuf bez izmjena (kopija
+  max 1 s, izmjereno: relay dodaje ≤1 s, zahtjev ~130–200 ms), `/static`
+  ZIP kroz Cloudflare cache (1 h, 304 radi). App: relay prvo, ZET kao rezerva
+  (2 min backoff). Dijagnostika "Izvor" pokazuje relay / zet.hr.
+- GPS provjera 2026-11-04: medijan 2–3 m od linije rute (shapes.txt), Dart
+  parser = Python gtfs_realtime_pb2 za svih 368 vozila.
+- Dev Mac ide kroz Mullvad exit node (Tailscale); zet.hr tad ne odgovara, relay da.
 
 ## v2.1.9 (2026-10-25)
 

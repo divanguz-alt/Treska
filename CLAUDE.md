@@ -47,6 +47,8 @@ lib/
                          timer_builder
 test/                    models + theme + widget + RT/wire tests
 tool/                    dev benchmarks (not shipped)
+relay/                   Cloudflare Worker that relays the RT protobuf
+                         (npm install; npx wrangler dev | deploy)
 ```
 
 ### Why the worker isolate
@@ -117,7 +119,13 @@ Measured on the author's machine (Dart VM, real ZET feed):
 
 ### Realtime source
 
-Only ZET itself: `https://zet.hr/gtfs-rt-protobuf`, polled every 5 s. One
+ZET's own protobuf, `https://zet.hr/gtfs-rt-protobuf`, polled every 5 s.
+When `_rtRelayUrl` in `worker.dart` is set, the poll goes to Treska's
+Cloudflare Worker (`relay/`) first: it passes ZET's bytes through unchanged,
+keeps one copy for 1 s per location (measured: adds ≤1 s) (in memory + Cache API), dedupes
+concurrent upstream fetches and serves the last good copy for up to 60 s when
+ZET fails. If the relay fails, the app polls ZET directly for 2 min before
+trying it again. Diagnostics `Izvor` shows which one answered. One
 protobuf carries both VehiclePosition fixes and StopTimeUpdate predictions, as
 separate entities per trip. Until 2.1.9 the app also read a third-party relay
 (`zet.skoljka.org`); it was dropped because it only re-published the same ZET
@@ -156,10 +164,16 @@ GitHub Releases and can install a newer build in place.
 ```
 https://zet.hr/gtfs-scheduled/latest   ~18.8 MB ZIP, cached on device
 https://zet.hr/gtfs-rt-protobuf        ~85 KB protobuf, polled every 5 s
+https://treska-relay.treska-relay.workers.dev/rt      same bytes via relay/
+https://treska-relay.treska-relay.workers.dev/static  timetable ZIP via relay/
 https://tiles.openfreemap.org/styles/  vector map (positron / dark)
 ```
 
-The static ZIP is fetched conditionally (`If-None-Match` / `If-Modified-Since`,
+The static ZIP also goes through the relay first (`/static`: streamed through
+Cloudflare's cache for 1 h, conditional headers forwarded, so 304 still
+works), with zet.hr as the fallback. On 2026-11-04 zet.hr refused TCP from
+the dev Mac's network while Cloudflare reached it fine; the relay keeps the
+app working in that case. The static ZIP is fetched conditionally (`If-None-Match` / `If-Modified-Since`,
 validators in `gtfs_static.zip.validators`): a cache younger than 12 h is used
 at startup without a request, a running app asks every 4 h, and an unchanged
 feed costs a 304 instead of 18.8 MB. The manual `RASPORED` button forces an

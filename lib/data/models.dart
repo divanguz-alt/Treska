@@ -229,6 +229,9 @@ class FeedStats {
   /// Seconds between the newest vehicle fix and the feed timestamp.
   final int positionAgeSec;
 
+  /// Where the last realtime protobuf came from ('relay', 'zet.hr', or '').
+  final String rtSource;
+
   const FeedStats({
     this.vehicles = 0,
     this.vehiclesTram = 0,
@@ -244,6 +247,7 @@ class FeedStats {
     this.refreshMs = 0,
     this.feedTimestamp = 0,
     this.positionAgeSec = 0,
+    this.rtSource = '',
   });
 
   FeedStats copyWith({
@@ -261,6 +265,7 @@ class FeedStats {
     int? refreshMs,
     int? feedTimestamp,
     int? positionAgeSec,
+    String? rtSource,
   }) {
     return FeedStats(
       vehicles: vehicles ?? this.vehicles,
@@ -277,6 +282,7 @@ class FeedStats {
       refreshMs: refreshMs ?? this.refreshMs,
       feedTimestamp: feedTimestamp ?? this.feedTimestamp,
       positionAgeSec: positionAgeSec ?? this.positionAgeSec,
+      rtSource: rtSource ?? this.rtSource,
     );
   }
 

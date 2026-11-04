@@ -31,7 +31,7 @@ class _DiagnosticsSheet extends StatelessWidget {
     final age = stats.feedTimestamp > 0 ? stats.ageSecAt(DateTime.now()) : -1;
 
     final rows = <(String, String)>[
-      ('Izvor', 'zet.hr, svakih 5 s'),
+      ('Izvor', '${stats.rtSource.isEmpty ? '—' : stats.rtSource}, svakih 5 s'),
       ('Raspored', status.staticReady ? 'učitan' : 'nije učitan'),
       ('Stajališta', '${status.stopCount}'),
       ('Aktivni polasci', '${status.tripCount}'),
@@ -50,8 +50,13 @@ class _DiagnosticsSheet extends StatelessWidget {
           : 'nema GPS-a (Zagreb centar)'),
       ('Zadnje', snapshot == null ? '—' : hhmmss(snapshot.updatedAt)),
       ('Interval', '${FeedController.pollInterval.inSeconds} s'),
-      ('Karta', colors.isDark ? 'Esri Dark Gray' : 'OpenStreetMap'),
-      ('Karta izvor', colors.tileAttribution),
+      if (colors.mapStyleUrl.isNotEmpty) ...[
+        ('Karta', 'OpenFreeMap ${colors.mapStyleUrl.split('/').last}'),
+        ('Karta izvor', '© OpenMapTiles © OpenStreetMap'),
+      ] else ...[
+        ('Karta', colors.isDark ? 'Esri Dark Gray' : 'OpenStreetMap'),
+        ('Karta izvor', colors.tileAttribution),
+      ],
       if (status.staticError.isNotEmpty) ('Greška', status.staticError),
       if (snapshot != null && snapshot.error.isNotEmpty)
         ('RT greška', snapshot.error),

@@ -15,10 +15,24 @@ import 'models.dart';
 
 const String _staticUrl = 'https://zet.hr/gtfs-scheduled/latest';
 const String _rtUrl = 'https://zet.hr/gtfs-rt-protobuf';
+// Treska's own Cloudflare Worker (relay/): passes ZET's protobuf through
+// unchanged, so ZET sees one reader instead of every phone. Empty means poll
+// ZET directly. ZET stays the fallback whenever the relay fails.
+const String _relayBase = 'https://treska-relay.treska-relay.workers.dev';
+const String _rtRelayUrl = '$_relayBase/rt';
+// The same Worker streams the timetable ZIP through Cloudflare's cache, which
+// also helps where zet.hr itself is unreachable.
+const String _staticRelayUrl = '$_relayBase/static';
 const String _userAgent = 'Treska/2.0 (Flutter; ZET timetable)';
 
 const Duration _rtTimeout = Duration(seconds: 12);
+// Short, so a dead relay costs little before the ZET fallback.
+const Duration _relayTimeout = Duration(seconds: 4);
+// After a relay failure, poll ZET directly for this long before trying again.
+const Duration _relayBackoff = Duration(minutes: 2);
 const Duration _staticTimeout = Duration(minutes: 3);
+// Time to the first response byte from the relay before falling back to ZET.
+const Duration _staticRelayTimeout = Duration(seconds: 30);
 // A cached ZIP younger than this is used at startup without asking ZET.
 const Duration _staticMaxAge = Duration(hours: 12);
 // A running app asks ZET this often whether the ZIP changed. The request is
@@ -160,6 +174,7 @@ void zetWorkerMain(SendPort handshake) {
   var staticLoading = false;
   var refreshInFlight = false;
   DateTime? lastStaticAttempt;
+  DateTime? relayDownUntil;
 
   void sendStatic(WorkerStaticReady result) => handshake.send(result);
 
@@ -213,9 +228,11 @@ void zetWorkerMain(SendPort handshake) {
     handshake.send(WorkerShapeResult(id: message.id, points: points));
   }
   
-  /// Fetches the static ZIP. Returns false when ZET answered 304 (the cached
-  /// copy is current; its mtime is bumped so the age check restarts).
-  Future<bool> downloadStatic({bool conditional = true}) async {
+  Future<bool> downloadStaticFrom(
+    String url,
+    Map<String, String> headers,
+    Duration headerTimeout,
+  ) async {
     final tmp = File('$zipPath.tmp');
     if (await tmp.exists()) {
       try {
@@ -224,24 +241,9 @@ void zetWorkerMain(SendPort handshake) {
     }
     final zip = File(zipPath);
     final validators = File('$zipPath.validators');
-    final headers = {
-      'User-Agent': _userAgent,
-      'Accept': 'application/zip,*/*',
-    };
-    if (conditional && await zip.exists() && await validators.exists()) {
-      try {
-        final lines = await validators.readAsLines();
-        if (lines.isNotEmpty && lines[0].isNotEmpty) {
-          headers['If-None-Match'] = lines[0];
-        }
-        if (lines.length > 1 && lines[1].isNotEmpty) {
-          headers['If-Modified-Since'] = lines[1];
-        }
-      } catch (_) {}
-    }
-    final request = http.Request('GET', Uri.parse(_staticUrl))
+    final request = http.Request('GET', Uri.parse(url))
       ..headers.addAll(headers);
-    final response = await request.send().timeout(_staticTimeout);
+    final response = await request.send().timeout(headerTimeout);
     if (response.statusCode == 304) {
       await response.stream.drain<void>();
       try {
@@ -271,6 +273,38 @@ void zetWorkerMain(SendPort handshake) {
           '${response.headers['last-modified'] ?? ''}\n');
     } catch (_) {}
     return true;
+  }
+
+  /// Fetches the static ZIP, through the relay first and from ZET if that
+  /// fails. Returns false on a 304 (the cached copy is current; its mtime is
+  /// bumped so the age check restarts).
+  Future<bool> downloadStatic({bool conditional = true}) async {
+    final zip = File(zipPath);
+    final validators = File('$zipPath.validators');
+    final headers = {
+      'User-Agent': _userAgent,
+      'Accept': 'application/zip,*/*',
+    };
+    if (conditional && await zip.exists() && await validators.exists()) {
+      try {
+        final lines = await validators.readAsLines();
+        if (lines.isNotEmpty && lines[0].isNotEmpty) {
+          headers['If-None-Match'] = lines[0];
+        }
+        if (lines.length > 1 && lines[1].isNotEmpty) {
+          headers['If-Modified-Since'] = lines[1];
+        }
+      } catch (_) {}
+    }
+    if (_staticRelayUrl.isNotEmpty) {
+      try {
+        return await downloadStaticFrom(
+            _staticRelayUrl, headers, _staticRelayTimeout);
+      } catch (_) {
+        // Fall back to ZET directly.
+      }
+    }
+    return downloadStaticFrom(_staticUrl, headers, _staticTimeout);
   }
 
   /// Makes sure an index for today is loaded. [force] re-downloads
@@ -371,27 +405,37 @@ void zetWorkerMain(SendPort handshake) {
     }
   }
 
-  Future<Uint8List?> fetchRealtime(StringBuffer errors) async {
+  Future<Uint8List> getRealtime(String url, Duration timeout) async {
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {
+        'User-Agent': _userAgent,
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      },
+    ).timeout(timeout);
+    if (response.statusCode != 200) {
+      throw Exception('HTTP ${response.statusCode}');
+    }
+    if (response.bodyBytes.length < 100) throw Exception('prazan odgovor');
+    return response.bodyBytes;
+  }
+
+  /// Relay first (unless it failed recently), then ZET directly.
+  Future<(Uint8List, String)?> fetchRealtime(StringBuffer errors) async {
+    final now = DateTime.now();
+    if (_rtRelayUrl.isNotEmpty &&
+        (relayDownUntil == null || now.isAfter(relayDownUntil!))) {
+      try {
+        final bytes = await getRealtime(_rtRelayUrl, _relayTimeout);
+        relayDownUntil = null;
+        return (bytes, 'relay');
+      } catch (_) {
+        relayDownUntil = now.add(_relayBackoff);
+      }
+    }
     try {
-      final response = await http
-          .get(
-            Uri.parse(_rtUrl),
-            headers: {
-              'User-Agent': _userAgent,
-              'Cache-Control': 'no-cache',
-              'Pragma': 'no-cache',
-            },
-          )
-          .timeout(_rtTimeout);
-      if (response.statusCode != 200) {
-        errors.write('RT HTTP ${response.statusCode}');
-        return null;
-      }
-      if (response.bodyBytes.length < 100) {
-        errors.write('RT prazan odgovor');
-        return null;
-      }
-      return response.bodyBytes;
+      return (await getRealtime(_rtUrl, _rtTimeout), 'zet.hr');
     } catch (e) {
       errors.write('RT: $e');
       return null;
@@ -430,7 +474,8 @@ void zetWorkerMain(SendPort handshake) {
       final errors = StringBuffer();
 
       // One protobuf carries both vehicle fixes and stop predictions.
-      final rtBytes = await fetchRealtime(errors);
+      final rt = await fetchRealtime(errors);
+      final rtBytes = rt?.$1;
 
       final snapshot = engine!.refresh(
         lat: message.lat,
@@ -446,9 +491,10 @@ void zetWorkerMain(SendPort handshake) {
         error = error.isEmpty ? errors.toString() : '$error | $errors';
       }
 
-      handshake.send(WorkerFeed(
-        error.isEmpty ? snapshot : snapshot.copyWith(error: error),
-      ));
+      handshake.send(WorkerFeed(snapshot.copyWith(
+        error: error,
+        stats: snapshot.stats.copyWith(rtSource: rt?.$2 ?? ''),
+      )));
     } catch (e) {
       handshake.send(WorkerFeed(FeedSnapshot(
         updatedAt: DateTime.now(),
