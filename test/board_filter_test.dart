@@ -151,8 +151,11 @@ void main() {
   test('the filter cannot turn both modes off and is remembered', () async {
     final settings = await _settings({});
     expect(settings.shownModes, kModeTram, reason: 'trams only by default');
-    expect(settings.toggleShown(kModeTram), isFalse,
-        reason: 'the only mode on stays on');
+    expect(
+      settings.toggleShown(kModeTram),
+      isFalse,
+      reason: 'the only mode on stays on',
+    );
     expect(settings.toggleShown(kModeBus), isTrue);
     expect(settings.shownModes, kModeTram | kModeBus);
     expect(settings.toggleShown(kModeTram), isTrue);
@@ -172,8 +175,7 @@ void main() {
   });
 
   testWidgets('both chips on: one mixed list sorted by time', (tester) async {
-    final settings =
-        await _settings({'show_trams': true, 'show_buses': true});
+    final settings = await _settings({'show_trams': true, 'show_buses': true});
     await _pumpBoard(
       tester,
       settings,
@@ -194,20 +196,49 @@ void main() {
     expect(_rows(tester), ['6', '11']);
     expect(settings.showTrams, isTrue);
 
-    await tester.tap(find.text('Autobusi 2'));
+    await tester.tap(find.text('Autobusi'));
+    await tester.pump();
     await tester.tap(find.text('Tramvaji 2'));
     await tester.pump();
     expect(_rows(tester), ['101', '119']);
   });
 
-  testWidgets('a stop with one mode hides the chips and ignores the filter', (
+  testWidgets('the chips are always there and pick the nearby stops', (
+    tester,
+  ) async {
+    final settings = await _settings({});
+    await _pumpBoard(
+      tester,
+      settings,
+      trams: [_tramStop()],
+      buses: [_busStop()],
+    );
+    // Default: trams only, and the bus chip is still there to switch on.
+    expect(find.text('Tramvaji 2'), findsOneWidget);
+    expect(find.text('Autobusi'), findsOneWidget);
+    expect(_rows(tester), ['6', '11']);
+
+    await tester.tap(find.text('Autobusi'));
+    await tester.pump();
+    expect(settings.showBuses, isTrue);
+    expect(_rows(tester), ['101', '6', '119', '11']);
+
+    await tester.tap(find.text('Tramvaji 2'));
+    await tester.pump();
+    expect(_rows(tester), ['101', '119']);
+  });
+
+  testWidgets('buses only with no bus stop near: chips stay, board is empty', (
     tester,
   ) async {
     final settings = await _settings({'show_trams': false, 'show_buses': true});
     await _pumpBoard(tester, settings, trams: [_tramStop()]);
-    expect(find.textContaining('Tramvaji'), findsNothing);
-    expect(find.textContaining('Autobusi'), findsNothing);
+    expect(find.text('Tramvaji'), findsOneWidget);
+    expect(find.text('Autobusi'), findsOneWidget);
+    expect(_rows(tester), isEmpty);
+
+    await tester.tap(find.text('Tramvaji'));
+    await tester.pump();
     expect(_rows(tester), ['6', '11']);
-    expect(settings.showTrams, isFalse, reason: 'saved filter is kept');
   });
 }

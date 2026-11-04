@@ -54,10 +54,14 @@ class BoardPanel extends StatelessWidget {
         final snapshot = feed.snapshot.value;
         final loading = snapshot == null;
 
-        // Trams and buses share one board; the chips filter it below.
+        // The chips pick which stops are near (like the old tabs): trams
+        // only by default; with both on, one merged board.
         final nearby = loading
             ? const <NearbyStop>[]
-            : combineModes(snapshot.tramStops, snapshot.busStops);
+            : combineModes(
+                settings.showTrams ? snapshot.tramStops : const [],
+                settings.showBuses ? snapshot.busStops : const [],
+              );
 
         // Fall back to the nearest stop whenever the selection is gone.
         NearbyStop? selected;
@@ -70,8 +74,9 @@ class BoardPanel extends StatelessWidget {
         // Search and the map hand over a platform id; the nearby list names a
         // stop after its closest platform. Same stop, different id — match the
         // group so the board does not show the stop twice.
-        final selectedInfo =
-            selectedStopId == null ? null : feed.stopById[selectedStopId];
+        final selectedInfo = selectedStopId == null
+            ? null
+            : feed.stopById[selectedStopId];
         if (selected == null && selectedInfo != null) {
           for (final s in nearby) {
             if (sameStopGroup(s.stop, selectedInfo)) {
@@ -114,12 +119,13 @@ class BoardPanel extends StatelessWidget {
         }
         final active = selected ?? outside;
 
-        // The chips only matter where the stop has both modes. Elsewhere the
-        // board shows what the stop has, whatever the saved filter says (the
-        // saved filter itself is left alone).
+        // A stop with both modes shows what the chips let through. A stop
+        // picked on the map or in search with only the other mode still shows
+        // its own departures (the saved filter is left alone).
         final available = active?.arrivalModes ?? 0;
-        final both = available == kModeTram | kModeBus;
-        final shown = both || available == 0 ? settings.shownModes : available;
+        final shown = (available & settings.shownModes) != 0 || available == 0
+            ? settings.shownModes
+            : available;
         final board = active?.onlyModes(shown);
 
         // The picker lists the nearby stops plus an out-of-range selection so
@@ -128,11 +134,10 @@ class BoardPanel extends StatelessWidget {
         if (outside != null) picker.insert(0, outside);
 
         final header = _BoardHeader(
-          showChips: both,
           showTrams: settings.showTrams,
           showBuses: settings.showBuses,
-          tramCount: both ? active!.lineCount(kModeTram) : 0,
-          busCount: both ? active!.lineCount(kModeBus) : 0,
+          tramCount: active?.lineCount(kModeTram) ?? 0,
+          busCount: active?.lineCount(kModeBus) ?? 0,
           stops: picker,
           selectedStopId: active?.stop.id,
           onToggleMode: (m) {
@@ -146,24 +151,24 @@ class BoardPanel extends StatelessWidget {
 
         return LedClockScope(
           child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: _BoardScroll(
-                feed: feed,
-                settings: settings,
-                scrollController: scrollController,
-                header: header,
-                stop: board,
-                loading: loading,
-                error: snapshot?.error ?? '',
-                mode: shown,
-                radiusM: settings.radiusM,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _BoardScroll(
+                  feed: feed,
+                  settings: settings,
+                  scrollController: scrollController,
+                  header: header,
+                  stop: board,
+                  loading: loading,
+                  error: snapshot?.error ?? '',
+                  mode: shown,
+                  radiusM: settings.radiusM,
+                ),
               ),
-            ),
-            if (!loading && active != null) const _BoardLegend(),
-          ],
-        ),
+              if (!loading && active != null) const _BoardLegend(),
+            ],
+          ),
         );
       },
     );
@@ -180,6 +185,7 @@ class _BoardScroll extends StatelessWidget {
   final NearbyStop? stop;
   final bool loading;
   final String error;
+
   /// [kModeTram] / [kModeBus] bits on the board.
   final int mode;
   final double radiusM;
@@ -206,7 +212,9 @@ class _BoardScroll extends StatelessWidget {
         final now = DateTime.now();
         return CustomScrollView(
           controller: scrollController,
-          physics: const ClampingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          physics: const ClampingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
+          ),
           slivers: [
             SliverPersistentHeader(
               pinned: true,
@@ -219,13 +227,13 @@ class _BoardScroll extends StatelessWidget {
               child: SizedBox(height: error.isNotEmpty ? ZetSpace.sm : 0),
             ),
             if (error.isNotEmpty)
-              SliverToBoxAdapter(child: _ErrorBanner(feed: feed, message: error)),
+              SliverToBoxAdapter(
+                child: _ErrorBanner(feed: feed, message: error),
+              ),
             if (loading)
               SliverToBoxAdapter(child: _LoadingBody(feed: feed))
             else if (stop == null)
-              SliverToBoxAdapter(
-                child: _EmptyBody(radiusM: radiusM),
-              )
+              SliverToBoxAdapter(child: _EmptyBody(radiusM: radiusM))
             else ...[
               SliverToBoxAdapter(
                 child: Padding(
@@ -292,8 +300,6 @@ class _HeaderDelegate extends SliverPersistentHeaderDelegate {
 
 /// Drag handle, the two mode filter chips and the stop picker.
 class _BoardHeader extends StatelessWidget {
-  /// False when the stop has only one mode: the chips are hidden then.
-  final bool showChips;
   final bool showTrams;
   final bool showBuses;
   final int tramCount;
@@ -306,7 +312,6 @@ class _BoardHeader extends StatelessWidget {
   final VoidCallback onCollapse;
 
   const _BoardHeader({
-    required this.showChips,
     required this.showTrams,
     required this.showBuses,
     required this.tramCount,
@@ -333,31 +338,45 @@ class _BoardHeader extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: ZetSpace.sheet),
               child: Row(
                 children: [
-                  if (showChips) ...[
-                    _ModeChip(
-                      label: 'Tramvaji $tramCount',
-                      icon: Icons.tram,
-                      selected: showTrams,
-                      color: colors.tram,
-                      onTap: () => onToggleMode(kModeTram),
+                  // Always visible: they also pick what the map shows. They
+                  // scroll rather than overflow with large system text.
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _ModeChip(
+                            label: tramCount > 0
+                                ? 'Tramvaji $tramCount'
+                                : 'Tramvaji',
+                            icon: Icons.tram,
+                            selected: showTrams,
+                            color: colors.tram,
+                            onTap: () => onToggleMode(kModeTram),
+                          ),
+                          const SizedBox(width: ZetSpace.sm),
+                          _ModeChip(
+                            label: busCount > 0
+                                ? 'Autobusi $busCount'
+                                : 'Autobusi',
+                            icon: Icons.directions_bus,
+                            selected: showBuses,
+                            color: colors.bus,
+                            onTap: () => onToggleMode(kModeBus),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(width: ZetSpace.sm),
-                    _ModeChip(
-                      label: 'Autobusi $busCount',
-                      icon: Icons.directions_bus,
-                      selected: showBuses,
-                      color: colors.bus,
-                      onTap: () => onToggleMode(kModeBus),
-                    ),
-                  ],
-                  const Spacer(),
+                  ),
                   IconButton(
                     tooltip: 'Osvježi',
                     onPressed: onRefresh,
                     iconSize: 20,
                     visualDensity: VisualDensity.compact,
-                    constraints:
-                        const BoxConstraints.tightFor(width: 40, height: 40),
+                    constraints: const BoxConstraints.tightFor(
+                      width: 40,
+                      height: 40,
+                    ),
                     padding: EdgeInsets.zero,
                     color: colors.textDim,
                     icon: const Icon(Icons.refresh),
@@ -367,8 +386,10 @@ class _BoardHeader extends StatelessWidget {
                     onPressed: onCollapse,
                     iconSize: 24,
                     visualDensity: VisualDensity.compact,
-                    constraints:
-                        const BoxConstraints.tightFor(width: 40, height: 40),
+                    constraints: const BoxConstraints.tightFor(
+                      width: 40,
+                      height: 40,
+                    ),
                     padding: EdgeInsets.zero,
                     color: colors.textDim,
                     icon: const Icon(Icons.keyboard_arrow_down),
@@ -444,43 +465,43 @@ class _ModeChip extends StatelessWidget {
     return Semantics(
       toggled: selected,
       child: Material(
-      color: selected ? colors.primaryContainer : colors.panel,
-      borderRadius: BorderRadius.circular(ZetRadius.chip),
-      child: InkWell(
-        onTap: onTap,
+        color: selected ? colors.primaryContainer : colors.panel,
         borderRadius: BorderRadius.circular(ZetRadius.chip),
-        child: Container(
-          height: 32,
-          padding: const EdgeInsets.symmetric(horizontal: ZetSpace.md),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: selected ? Colors.transparent : colors.border,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(ZetRadius.chip),
+          child: Container(
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: ZetSpace.md),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: selected ? Colors.transparent : colors.border,
+              ),
+              borderRadius: BorderRadius.circular(ZetRadius.chip),
             ),
-            borderRadius: BorderRadius.circular(ZetRadius.chip),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                selected ? Icons.check : icon,
-                size: 16,
-                color: selected ? colors.onPrimaryContainer : colors.textDim,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: selected ? colors.onPrimaryContainer : colors.text,
-                  fontFeatures: kTabular,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  selected ? Icons.check : icon,
+                  size: 16,
+                  color: selected ? colors.onPrimaryContainer : colors.textDim,
                 ),
-              ),
-            ],
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: selected ? colors.onPrimaryContainer : colors.text,
+                    fontFeatures: kTabular,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
     );
   }
 }
@@ -610,10 +631,7 @@ class _BoardLegend extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    final style = TextStyle(
-      fontSize: 12,
-      color: colors.textDim,
-    );
+    final style = TextStyle(fontSize: 12, color: colors.textDim);
 
     // The bottom safe area is handled by the sheet host, which keeps this row
     // above the Android gesture handle.
@@ -633,8 +651,10 @@ class _BoardLegend extends StatelessWidget {
               dot: Container(
                 width: 7,
                 height: 7,
-                decoration:
-                    BoxDecoration(shape: BoxShape.circle, color: colors.ok),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: colors.ok,
+                ),
               ),
               label: 'ZET prognoza',
               style: style,
@@ -657,8 +677,10 @@ class _BoardLegend extends StatelessWidget {
               dot: Container(
                 width: 7,
                 height: 7,
-                decoration:
-                    BoxDecoration(shape: BoxShape.circle, color: colors.border),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: colors.border,
+                ),
               ),
               label: 'Raspored',
               style: style,
@@ -705,13 +727,19 @@ class _ErrorBanner extends StatelessWidget {
     final colors = context.zet;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          ZetSpace.md, ZetSpace.sm, ZetSpace.md, 0),
+        ZetSpace.md,
+        ZetSpace.sm,
+        ZetSpace.md,
+        0,
+      ),
       child: InkWell(
         onTap: () => showDiagnostics(context, feed),
         borderRadius: BorderRadius.circular(ZetRadius.card),
         child: Container(
           padding: const EdgeInsets.symmetric(
-              horizontal: ZetSpace.md, vertical: ZetSpace.sm),
+            horizontal: ZetSpace.md,
+            vertical: ZetSpace.sm,
+          ),
           decoration: BoxDecoration(
             color: colors.danger.withValues(alpha: 0.08),
             border: Border.all(color: colors.danger.withValues(alpha: 0.5)),
@@ -754,7 +782,11 @@ class _EmptyBody extends StatelessWidget {
     final radius = radiusM.round();
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          ZetSpace.lg, ZetSpace.xl, ZetSpace.lg, ZetSpace.lg),
+        ZetSpace.lg,
+        ZetSpace.xl,
+        ZetSpace.lg,
+        ZetSpace.lg,
+      ),
       child: Column(
         children: [
           Icon(Icons.filter_alt_off_outlined, size: 32, color: colors.textDim),
@@ -762,21 +794,14 @@ class _EmptyBody extends StatelessWidget {
           Text(
             'Nema tramvaja ni autobusa u krugu od $radius m',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: colors.textDim,
-              height: 1.5,
-            ),
+            style: TextStyle(fontSize: 14, color: colors.textDim, height: 1.5),
           ),
           const SizedBox(height: 6),
           Text(
             'Osvježi gumbom iznad, povećaj radijus u postavkama ili '
             'provjeri GPS.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              color: colors.textDim,
-            ),
+            style: TextStyle(fontSize: 13, color: colors.textDim),
           ),
         ],
       ),
@@ -813,8 +838,8 @@ class _LoadingBody extends StatelessWidget {
           Text(
             status.staticError.isEmpty
                 ? (status.loading.isEmpty
-                    ? 'Učitavam raspored…'
-                    : status.loading)
+                      ? 'Učitavam raspored…'
+                      : status.loading)
                 : status.staticError,
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -830,10 +855,7 @@ class _LoadingBody extends StatelessWidget {
             Text(
               'Prvo pokretanje preuzima ~19 MB rasporeda.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: colors.textDim,
-              ),
+              style: TextStyle(fontSize: 13, color: colors.textDim),
             ),
           const SizedBox(height: ZetSpace.lg),
           if (status.staticError.isNotEmpty)

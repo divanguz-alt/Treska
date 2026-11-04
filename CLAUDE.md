@@ -111,8 +111,10 @@ Measured on the author's machine (Dart VM, real ZET feed):
 
 The chips are independent filters (`show_trams`, `show_buses`, never both
 off). The board merges the engine's per-mode stops by name (`combineModes`)
-into one time-sorted list; a stop with one mode hides the chips and shows that
-mode whatever the saved filter says. The map shows the modes the chips let
+into one time-sorted list. The chips are always visible (since 2.1.14; hiding
+them at one-mode stops left no way to turn buses on) and also pick which nearby
+stops the board offers; a stop picked on the map or in search with only the
+other mode still shows its own departures. The map shows the modes the chips let
 through; the default is trams only, because every vehicle at once (~350
 markers) made the map stutter on the author's phone in 2.1.12.
 

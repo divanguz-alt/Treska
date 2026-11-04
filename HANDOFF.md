@@ -1,4 +1,12 @@
-# HANDOFF — Treska (ZET 2) v2.1.13
+# HANDOFF — Treska (ZET 2) v2.1.14
+
+## v2.1.14 (2026-11-04)
+
+- Tipke Tramvaji/Autobusi se uvijek vide iznad rasporeda. U 2.1.13 su bile
+  skrivene na stanicama sa samo jednom vrstom, pa se autobusi nisu mogli
+  uključiti. Tipke biraju i koje bliže stanice popis nudi, i što karta prikazuje.
+  Bez broja kad stanica nema linija te vrste; redak se pomiče umjesto da se
+  prelije kod velikog teksta.
 
 ## v2.1.13 (2026-11-04)
 
