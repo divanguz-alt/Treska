@@ -110,6 +110,63 @@ class NearbyStop {
     required this.distanceM,
     required this.arrivals,
   });
+
+  /// [kModeTram] / [kModeBus] bits of the vehicles in [arrivals]; falls back
+  /// to the platform's own modes while the stop has no departures listed.
+  int get arrivalModes {
+    var modes = 0;
+    for (final a in arrivals) {
+      modes |= a.routeType == kRouteTypeTram ? kModeTram : kModeBus;
+      if (modes == kModeTram | kModeBus) break;
+    }
+    return modes == 0 ? stop.modes : modes;
+  }
+
+  /// Distinct lines of [mode] at this stop (the number in a filter chip).
+  int lineCount(int mode) => {
+        for (final a in arrivals)
+          if ((a.routeType == kRouteTypeTram) == (mode == kModeTram))
+            a.routeShortName,
+      }.length;
+
+  /// This stop with only the arrivals of the [modes] bits.
+  NearbyStop onlyModes(int modes) {
+    if (modes == kModeTram | kModeBus) return this;
+    final tram = modes == kModeTram;
+    return NearbyStop(
+      stop: stop,
+      distanceM: distanceM,
+      arrivals: [
+        for (final a in arrivals)
+          if ((a.routeType == kRouteTypeTram) == tram) a,
+      ],
+    );
+  }
+}
+
+/// One board per stop for both modes: the engine merges platforms per mode,
+/// so the tram and bus platforms of one stop (same name, within
+/// [kStopGroupRadiusM]) are joined here. Arrivals are time-ordered, stops
+/// nearest first.
+List<NearbyStop> combineModes(List<NearbyStop> trams, List<NearbyStop> buses) {
+  final out = <NearbyStop>[...trams];
+  for (final b in buses) {
+    final i = out.indexWhere((s) => sameStopGroup(s.stop, b.stop));
+    if (i < 0) {
+      out.add(b);
+      continue;
+    }
+    final t = out[i];
+    final closer = b.distanceM < t.distanceM ? b : t;
+    out[i] = NearbyStop(
+      stop: closer.stop,
+      distanceM: closer.distanceM,
+      arrivals: [...t.arrivals, ...b.arrivals]
+        ..sort((x, y) => x.time.compareTo(y.time)),
+    );
+  }
+  out.sort((a, b) => a.distanceM.compareTo(b.distanceM));
+  return out;
 }
 
 /// One stop on a trip's timeline, used by the arrival-details screen.

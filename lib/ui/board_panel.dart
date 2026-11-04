@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/theme.dart';
 import '../core/tokens.dart';
@@ -7,6 +8,8 @@ import '../data/models.dart';
 import '../settings_controller.dart';
 import 'arrival_details.dart';
 import 'diagnostics_sheet.dart';
+import 'led/led_clock.dart';
+import 'widgets/zet_arrival_row.dart';
 import 'widgets/stop_card.dart';
 import 'widgets/timer_builder.dart';
 
@@ -20,13 +23,11 @@ import 'widgets/timer_builder.dart';
 class BoardPanel extends StatelessWidget {
   final FeedController feed;
   final SettingsController settings;
-  final int mode;
 
   /// Selected stop, owned by the screen so search and the board agree.
   final String? selectedStopId;
 
   final ScrollController? scrollController;
-  final ValueChanged<int> onModeChanged;
   final ValueChanged<String> onStopSelected;
 
   /// Hides the sheet, leaving the map full-screen.
@@ -36,8 +37,6 @@ class BoardPanel extends StatelessWidget {
     super.key,
     required this.feed,
     required this.settings,
-    required this.mode,
-    required this.onModeChanged,
     required this.onStopSelected,
     required this.onCollapse,
     this.selectedStopId,
@@ -55,9 +54,10 @@ class BoardPanel extends StatelessWidget {
         final snapshot = feed.snapshot.value;
         final loading = snapshot == null;
 
+        // Trams and buses share one board; the chips filter it below.
         final nearby = loading
             ? const <NearbyStop>[]
-            : (mode == kModeTram ? snapshot.tramStops : snapshot.busStops);
+            : combineModes(snapshot.tramStops, snapshot.busStops);
 
         // Fall back to the nearest stop whenever the selection is gone.
         NearbyStop? selected;
@@ -86,20 +86,12 @@ class BoardPanel extends StatelessWidget {
 
         // A stop picked in search, on the map or among the favourites can sit
         // outside the nearby radius. The worker computes a board for it anyway
-        // (pinned stops); show that board, filtered to the current mode.
+        // (pinned stops, both modes in one list); show that board.
         NearbyStop? outside;
         if (selected == null && selectedStopId != null && !loading) {
           for (final p in snapshot.pinnedStops) {
             if (p.stop.id != selectedStopId) continue;
-            final routeType = mode == kModeTram ? kRouteTypeTram : kRouteTypeBus;
-            outside = NearbyStop(
-              stop: p.stop,
-              distanceM: p.distanceM,
-              arrivals: [
-                for (final a in p.arrivals)
-                  if (a.routeType == routeType) a,
-              ],
-            );
+            outside = p;
             break;
           }
         }
@@ -122,24 +114,38 @@ class BoardPanel extends StatelessWidget {
         }
         final active = selected ?? outside;
 
+        // The chips only matter where the stop has both modes. Elsewhere the
+        // board shows what the stop has, whatever the saved filter says (the
+        // saved filter itself is left alone).
+        final available = active?.arrivalModes ?? 0;
+        final both = available == kModeTram | kModeBus;
+        final shown = both || available == 0 ? settings.shownModes : available;
+        final board = active?.onlyModes(shown);
+
         // The picker lists the nearby stops plus an out-of-range selection so
         // its label always matches the board below.
         final picker = <NearbyStop>[...nearby];
         if (outside != null) picker.insert(0, outside);
 
         final header = _BoardHeader(
-          mode: mode,
-          tramCount: _lineCount(snapshot?.tramStops),
-          busCount: _lineCount(snapshot?.busStops),
+          showChips: both,
+          showTrams: settings.showTrams,
+          showBuses: settings.showBuses,
+          tramCount: both ? active!.lineCount(kModeTram) : 0,
+          busCount: both ? active!.lineCount(kModeBus) : 0,
           stops: picker,
           selectedStopId: active?.stop.id,
-          onModeChanged: onModeChanged,
+          onToggleMode: (m) {
+            // The last mode left on cannot be switched off.
+            if (!settings.toggleShown(m)) HapticFeedback.selectionClick();
+          },
           onStopSelected: onStopSelected,
           onRefresh: feed.refreshNow,
           onCollapse: onCollapse,
         );
 
-        return Column(
+        return LedClockScope(
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
@@ -148,29 +154,19 @@ class BoardPanel extends StatelessWidget {
                 settings: settings,
                 scrollController: scrollController,
                 header: header,
-                stop: active,
+                stop: board,
                 loading: loading,
                 error: snapshot?.error ?? '',
-                mode: mode,
+                mode: shown,
                 radiusM: settings.radiusM,
               ),
             ),
             if (!loading && active != null) const _BoardLegend(),
           ],
+        ),
         );
       },
     );
-  }
-
-  int _lineCount(List<NearbyStop>? stops) {
-    if (stops == null) return 0;
-    final lines = <String>{};
-    for (final s in stops) {
-      for (final a in s.arrivals) {
-        lines.add(a.routeShortName);
-      }
-    }
-    return lines.length;
   }
 }
 
@@ -184,6 +180,7 @@ class _BoardScroll extends StatelessWidget {
   final NearbyStop? stop;
   final bool loading;
   final String error;
+  /// [kModeTram] / [kModeBus] bits on the board.
   final int mode;
   final double radiusM;
 
@@ -227,7 +224,7 @@ class _BoardScroll extends StatelessWidget {
               SliverToBoxAdapter(child: _LoadingBody(feed: feed))
             else if (stop == null)
               SliverToBoxAdapter(
-                child: _EmptyBody(mode: mode, radiusM: radiusM),
+                child: _EmptyBody(radiusM: radiusM),
               )
             else ...[
               SliverToBoxAdapter(
@@ -244,6 +241,12 @@ class _BoardScroll extends StatelessWidget {
                 child: StopBoard(
                   stop: stop!,
                   now: now,
+                  zet: settings.zetDisplay
+                      ? ZetDisplayStyle(
+                          colorId: settings.zetColor,
+                          marquee: settings.zetMarquee,
+                        )
+                      : null,
                   onOpen: (group) => showArrivalDetails(
                     context,
                     feed: feed,
@@ -287,25 +290,30 @@ class _HeaderDelegate extends SliverPersistentHeaderDelegate {
       old.extent != extent || old.child != child;
 }
 
-/// Drag handle, the two mode chips and the stop picker.
+/// Drag handle, the two mode filter chips and the stop picker.
 class _BoardHeader extends StatelessWidget {
-  final int mode;
+  /// False when the stop has only one mode: the chips are hidden then.
+  final bool showChips;
+  final bool showTrams;
+  final bool showBuses;
   final int tramCount;
   final int busCount;
   final List<NearbyStop> stops;
   final String? selectedStopId;
-  final ValueChanged<int> onModeChanged;
+  final ValueChanged<int> onToggleMode;
   final ValueChanged<String> onStopSelected;
   final Future<void> Function() onRefresh;
   final VoidCallback onCollapse;
 
   const _BoardHeader({
-    required this.mode,
+    required this.showChips,
+    required this.showTrams,
+    required this.showBuses,
     required this.tramCount,
     required this.busCount,
     required this.stops,
     required this.selectedStopId,
-    required this.onModeChanged,
+    required this.onToggleMode,
     required this.onStopSelected,
     required this.onRefresh,
     required this.onCollapse,
@@ -325,21 +333,23 @@ class _BoardHeader extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: ZetSpace.sheet),
               child: Row(
                 children: [
-                  _ModeChip(
-                    label: 'Tramvaji $tramCount',
-                    icon: Icons.tram,
-                    selected: mode == kModeTram,
-                    color: colors.tram,
-                    onTap: () => onModeChanged(kModeTram),
-                  ),
-                  const SizedBox(width: ZetSpace.sm),
-                  _ModeChip(
-                    label: 'Autobusi $busCount',
-                    icon: Icons.directions_bus,
-                    selected: mode == kModeBus,
-                    color: colors.bus,
-                    onTap: () => onModeChanged(kModeBus),
-                  ),
+                  if (showChips) ...[
+                    _ModeChip(
+                      label: 'Tramvaji $tramCount',
+                      icon: Icons.tram,
+                      selected: showTrams,
+                      color: colors.tram,
+                      onTap: () => onToggleMode(kModeTram),
+                    ),
+                    const SizedBox(width: ZetSpace.sm),
+                    _ModeChip(
+                      label: 'Autobusi $busCount',
+                      icon: Icons.directions_bus,
+                      selected: showBuses,
+                      color: colors.bus,
+                      onTap: () => onToggleMode(kModeBus),
+                    ),
+                  ],
                   const Spacer(),
                   IconButton(
                     tooltip: 'Osvježi',
@@ -430,7 +440,10 @@ class _ModeChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    return Material(
+    // A filter toggle, so screen readers hear „uključeno/isključeno“.
+    return Semantics(
+      toggled: selected,
+      child: Material(
       color: selected ? colors.primaryContainer : colors.panel,
       borderRadius: BorderRadius.circular(ZetRadius.chip),
       child: InkWell(
@@ -467,6 +480,7 @@ class _ModeChip extends StatelessWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }
@@ -730,10 +744,9 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 class _EmptyBody extends StatelessWidget {
-  final int mode;
   final double radiusM;
 
-  const _EmptyBody({required this.mode, required this.radiusM});
+  const _EmptyBody({required this.radiusM});
 
   @override
   Widget build(BuildContext context) {
@@ -747,9 +760,7 @@ class _EmptyBody extends StatelessWidget {
           Icon(Icons.filter_alt_off_outlined, size: 32, color: colors.textDim),
           const SizedBox(height: ZetSpace.md),
           Text(
-            mode == kModeTram
-                ? 'Nema tramvaja u krugu od $radius m'
-                : 'Nema autobusa u krugu od $radius m',
+            'Nema tramvaja ni autobusa u krugu od $radius m',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,

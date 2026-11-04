@@ -87,7 +87,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(DraggableScrollableSheet), findsOneWidget);
-    expect(find.text('Tramvaji 0'), findsOneWidget);
+    expect(find.byTooltip('Osvježi'), findsOneWidget);
   });
 
   testWidgets('the real home sheet collapses, restores and drags away',
@@ -136,7 +136,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.text('Tramvaji 0'), findsOneWidget);
+    expect(find.byTooltip('Osvježi'), findsOneWidget);
 
     final sheet = tester.widget<DraggableScrollableSheet>(
       find.byType(DraggableScrollableSheet),
@@ -155,19 +155,19 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
     expect(find.text('Prikaži polaske'), findsOneWidget);
-    expect(find.text('Tramvaji 0'), findsNothing);
+    expect(find.byTooltip('Osvježi'), findsNothing);
 
     // Pill: a fresh sheet is inserted at the half height.
     await tester.tap(find.text('Prikaži polaske'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
-    expect(find.text('Tramvaji 0'), findsOneWidget);
+    expect(find.byTooltip('Osvježi'), findsOneWidget);
     expect(find.text('Prikaži polaske'), findsNothing);
 
     // Dragging the sheet handle down must collapse it and surface the restore
     // pill. (This also proves didUpdateWidget is no longer cancelling drags.)
-    final rowTop = tester.getTopLeft(find.text('Tramvaji 0')).dy;
+    final rowTop = tester.getTopLeft(find.byTooltip('Osvježi')).dy;
     await tester.timedDragFrom(
       Offset(400, rowTop - 20),
       const Offset(0, 450),

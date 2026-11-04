@@ -50,3 +50,4 @@ android/app/build/
 
 # Release builds are attached to GitHub Releases, not committed
 *.apk
+treska_zet_zaslon_handoff/

@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import '../core/theme.dart';
 import '../core/tokens.dart';
 import '../data/feed_controller.dart';
-import '../data/models.dart';
 import '../settings_controller.dart';
 import '../theme_controller.dart';
 import 'board_panel.dart';
@@ -45,8 +44,6 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
   late final Animation<double> _pulseCurve;
-
-  int _mode = kModeTram;
 
   /// Stop the board shows, owned here so the picker, the search screen and the
   /// map all point at the same place.
@@ -136,20 +133,6 @@ class _HomeScreenState extends State<HomeScreen>
     widget.settings.migrateLegacyFavorites(widget.feed.stopById);
   }
 
-  void _setMode(int mode) {
-    if (mode == _mode) return;
-    setState(() {
-      _mode = mode;
-      // A stop that has nothing of the new mode would leave an empty board;
-      // fall back to the nearest stop of that mode instead.
-      final selected = _selectedStopId == null
-          ? null
-          : widget.feed.stopById[_selectedStopId];
-      if (selected != null && !selected.serves(mode)) _selectedStopId = null;
-    });
-    _syncPinned();
-  }
-
   /// Snap points for the current screen. The collapsed sheet is 0, so a
   /// downward drag can hand the whole screen to the map.
   ({double peek, double half, double full}) _fractions(double screen) {
@@ -169,23 +152,13 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
 
-  /// Shared by the stop dropdown and the search screen: select a stop, switch
-  /// to [preferredMode] (a favourite's saved mode) or else keep the current
-  /// one, falling back to the mode the stop actually serves, and make sure
-  /// the sheet is open.
-  void _selectStop(String id, [int? preferredMode]) {
-    var mode = preferredMode ?? _mode;
-    for (final stop in widget.feed.stops.value) {
-      if (stop.id != id) continue;
-      if (!stop.serves(mode)) {
-        mode = mode == kModeTram ? kModeBus : kModeTram;
-      }
-      break;
-    }
-    setState(() {
-      _selectedStopId = id;
-      _mode = mode;
-    });
+  /// Shared by the stop dropdown, the map and the search screen: select a
+  /// stop and make sure the sheet is open. The board shows both modes and the
+  /// saved Tramvaji/Autobusi filter is left as it is, so a favourite's saved
+  /// mode ([_]) needs no handling here; a stop with only one mode shows that
+  /// mode whatever the filter says.
+  void _selectStop(String id, [int? _]) {
+    setState(() => _selectedStopId = id);
     _syncPinned();
     _expandSheet();
   }
@@ -278,7 +251,6 @@ class _HomeScreenState extends State<HomeScreen>
                     feed: widget.feed,
                     themeController: widget.themeController,
                     settings: widget.settings,
-                    mode: _mode,
                     sheetFraction: sheetSize,
                     bottomInsetPx: sheetSize * screen,
                     restingInsetPx: fractions.half * screen,
@@ -327,10 +299,8 @@ class _HomeScreenState extends State<HomeScreen>
                 builder: (context, scrollController) => BoardPanel(
                   feed: widget.feed,
                   settings: widget.settings,
-                  mode: _mode,
                   selectedStopId: _selectedStopId,
                   scrollController: scrollController,
-                  onModeChanged: _setMode,
                   onStopSelected: _selectStop,
                   onCollapse: _collapseSheet,
                 ),

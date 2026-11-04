@@ -74,7 +74,7 @@ class ArrivalRowWidget extends StatelessWidget {
                         ),
                     ),
                     const SizedBox(height: 2),
-                    _StatusLine(group: group, now: now),
+                    ArrivalStatusLine(group: group, now: now),
                   ],
                 ),
               ),
@@ -136,12 +136,12 @@ class _RouteBadge extends StatelessWidget {
 }
 
 /// „• Tramvaj · kasni 3 min“ — the state dot, mode name and (for live only) the
-/// delay.
-class _StatusLine extends StatelessWidget {
+/// delay. Shared with the ZET zaslon row.
+class ArrivalStatusLine extends StatelessWidget {
   final ArrivalGroup group;
   final DateTime now;
 
-  const _StatusLine({required this.group, required this.now});
+  const ArrivalStatusLine({super.key, required this.group, required this.now});
 
   @override
   Widget build(BuildContext context) {
@@ -239,10 +239,7 @@ class _EtaBlock extends StatelessWidget {
     final realtime = next.isRealtime;
     final estimated = next.isEstimated;
 
-    final untilNext = group.arrivals.skip(1).map((a) {
-      final s = a.secondsUntil(now);
-      return s <= 45 ? 'sada' : '${(s / 60).ceil()}';
-    }).toList(growable: false);
+    final then = thenLabel(group, now);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -307,11 +304,11 @@ class _EtaBlock extends StatelessWidget {
             ],
           ),
         ),
-        if (untilNext.isNotEmpty)
+        if (then != null)
           Padding(
             padding: const EdgeInsets.only(top: 2),
             child: Text(
-              'zatim ${untilNext.join(', ')} min',
+              then,
               style: TextStyle(
                 fontSize: 12,
                 color: colors.textDim,
@@ -322,6 +319,27 @@ class _EtaBlock extends StatelessWidget {
       ],
     );
   }
+}
+
+/// „zatim 8, 15 min“ for the departures after the next one, or null.
+/// Shared with the ZET zaslon row.
+String? thenLabel(ArrivalGroup group, DateTime now) {
+  final untilNext = group.arrivals.skip(1).map((a) {
+    final s = a.secondsUntil(now);
+    return s <= 45 ? 'sada' : '${(s / 60).ceil()}';
+  }).toList(growable: false);
+  return untilNext.isEmpty ? null : 'zatim ${untilNext.join(', ')} min';
+}
+
+/// What the board shows for the next arrival, shared by both row styles:
+/// „Stiže“ for a live vehicle at most 45 s away, the clock time for a
+/// scheduled one, minutes otherwise.
+enum EtaKind { arriving, minutes, clock }
+
+EtaKind etaKind(Arrival next, DateTime now) {
+  if (next.isRealtime && next.secondsUntil(now) <= 45) return EtaKind.arriving;
+  if (!next.isRealtime && !next.isEstimated) return EtaKind.clock;
+  return EtaKind.minutes;
 }
 
 /// Red „Stiže“ pill with a pulsing dot.

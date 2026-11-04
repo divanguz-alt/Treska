@@ -2,11 +2,17 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/models.dart';
+import 'ui/led/led_palette.dart';
 
 /// User preferences that are not the theme.
 class SettingsController extends ChangeNotifier {
   static const String _radiusKey = 'radius_meters';
   static const String _favoritesKey = 'favorite_stop_ids';
+  static const String _showTramsKey = 'show_trams';
+  static const String _showBusesKey = 'show_buses';
+  static const String _zetDisplayKey = 'zet_display_enabled';
+  static const String _zetColorKey = 'zet_display_color';
+  static const String _zetMarqueeKey = 'zet_display_marquee';
 
   /// The three values the handoff offers. 800 is the default.
   static const List<double> radiusChoices = [400, 800, 1200];
@@ -16,6 +22,65 @@ class SettingsController extends ChangeNotifier {
 
   final Set<String> _favorites = <String>{};
   Set<String> get favorites => _favorites;
+
+  bool _showTrams = true;
+  bool _showBuses = true;
+
+  /// Board filter, global and remembered. Never both off.
+  bool get showTrams => _showTrams;
+  bool get showBuses => _showBuses;
+
+  /// [kModeTram] / [kModeBus] bits the filter lets through.
+  int get shownModes => (_showTrams ? kModeTram : 0) | (_showBuses ? kModeBus : 0);
+
+  bool _zetDisplay = false;
+  String _zetColor = LedPalette.auto;
+  bool _zetMarquee = true;
+
+  /// „ZET zaslon“: arrival rows drawn as the LED sign on the vehicle.
+  bool get zetDisplay => _zetDisplay;
+
+  /// „Boja zaslona“ option id, see [LedPalette.options].
+  String get zetColor => _zetColor;
+
+  /// „Pomicanje dugih natpisa“.
+  bool get zetMarquee => _zetMarquee;
+
+  void setZetDisplay(bool value) => _setBool(
+      _zetDisplayKey, value, _zetDisplay, (v) => _zetDisplay = v);
+
+  void setZetMarquee(bool value) => _setBool(
+      _zetMarqueeKey, value, _zetMarquee, (v) => _zetMarquee = v);
+
+  void setZetColor(String id) {
+    if (id == _zetColor || !LedPalette.isKnown(id)) return;
+    _zetColor = id;
+    notifyListeners();
+    _save((p) => p.setString(_zetColorKey, id));
+  }
+
+  void _setBool(
+      String key, bool value, bool current, void Function(bool) assign) {
+    if (value == current) return;
+    assign(value);
+    notifyListeners();
+    _save((p) => p.setBool(key, value));
+  }
+
+  /// Flips one mode of the board filter. Returns false (and changes nothing)
+  /// when that would leave both modes off.
+  bool toggleShown(int mode) {
+    final next = shownModes ^ mode;
+    if (next == 0) return false;
+    _showTrams = (next & kModeTram) != 0;
+    _showBuses = (next & kModeBus) != 0;
+    notifyListeners();
+    _save((p) async {
+      await p.setBool(_showTramsKey, _showTrams);
+      await p.setBool(_showBusesKey, _showBuses);
+    });
+    return true;
+  }
 
   Future<void> load() async {
     try {
@@ -32,6 +97,17 @@ class SettingsController extends ChangeNotifier {
           ..addAll(favs);
         notifyListeners();
       }
+      final trams = prefs.getBool(_showTramsKey) ?? true;
+      final buses = prefs.getBool(_showBusesKey) ?? true;
+      if (trams || buses) {
+        _showTrams = trams;
+        _showBuses = buses;
+      }
+      _zetDisplay = prefs.getBool(_zetDisplayKey) ?? false;
+      _zetMarquee = prefs.getBool(_zetMarqueeKey) ?? true;
+      final color = prefs.getString(_zetColorKey);
+      if (color != null && LedPalette.isKnown(color)) _zetColor = color;
+      notifyListeners();
     } catch (_) {
       // Prefs unavailable — keep the default.
     }
@@ -61,6 +137,21 @@ class SettingsController extends ChangeNotifier {
 
   bool isFavoriteStop(StopInfo stop, int mode) =>
       _favorites.contains(favoriteKey(stop.name, mode));
+
+  /// True when the name is saved for any of the [modes] bits.
+  bool isFavoriteForAny(StopInfo stop, int modes) => [kModeTram, kModeBus]
+      .any((m) => (modes & m) != 0 && isFavoriteStop(stop, m));
+
+  /// Saves or removes the name for every mode in the [modes] bits.
+  Future<void> setFavoriteFor(StopInfo stop, int modes, bool favourite) async {
+    for (final m in const [kModeTram, kModeBus]) {
+      if ((modes & m) == 0) continue;
+      final key = favoriteKey(stop.name, m);
+      favourite ? _favorites.add(key) : _favorites.remove(key);
+    }
+    notifyListeners();
+    await _saveFavorites();
+  }
 
   /// True when [stop] is drawn as a star on the map in [mode]: it must serve
   /// that mode and its name must be saved for it.
@@ -102,6 +193,12 @@ class SettingsController extends ChangeNotifier {
     if (!changed) return;
     notifyListeners();
     await _saveFavorites();
+  }
+
+  Future<void> _save(Future<void> Function(SharedPreferences) write) async {
+    try {
+      await write(await SharedPreferences.getInstance());
+    } catch (_) {}
   }
 
   Future<void> _saveFavorites() async {

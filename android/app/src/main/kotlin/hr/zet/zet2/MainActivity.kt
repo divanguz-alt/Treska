@@ -29,10 +29,23 @@ class MainActivity : FlutterActivity() {
                     }
                     "openUrl" -> result.success(openUrl(call.argument("url")))
                     "openApp" -> result.success(openApp(call.argument("package")))
+                    // ZET zaslon: marquee and blinking stop when the system's
+                    // animator scale is 0 (Flutter's own flag follows the
+                    // transition scale only).
+                    "animatorsEnabled" -> result.success(animatorsEnabled())
                     else -> result.notImplemented()
                 }
             }
     }
+
+    private fun animatorsEnabled(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            android.animation.ValueAnimator.areAnimatorsEnabled()
+        } else {
+            Settings.Global.getFloat(
+                contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f,
+            ) != 0f
+        }
 
     private fun installedVersion(): Map<String, Any?> {
         val info = packageManager.getPackageInfo(packageName, 0)

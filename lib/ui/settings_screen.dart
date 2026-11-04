@@ -6,6 +6,9 @@ import '../data/feed_controller.dart';
 import '../data/update_service.dart';
 import '../settings_controller.dart';
 import '../theme_controller.dart';
+import 'led/led_font.dart';
+import 'led/led_palette.dart';
+import 'led/led_panel.dart';
 
 /// Full-screen settings: appearance, map radius, data controls and self-update.
 Future<void> showSettings(
@@ -251,6 +254,10 @@ class _SettingsScreenState extends State<_SettingsScreen> {
               ],
             ),
           ),
+          const SizedBox(height: ZetSpace.xl),
+
+          _SectionLabel('Izgled dolazaka', colors: colors),
+          _ArrivalLookSection(settings: widget.settings),
         ],
       ),
     );
@@ -258,6 +265,149 @@ class _SettingsScreenState extends State<_SettingsScreen> {
 }
 
 // ── Rows ─────────────────────────────────────────────────────────────────────
+
+/// „Izgled dolazaka“ (handoff README §2): the ZET zaslon switch, and while it
+/// is on a preview, the colour choice and the marquee switch.
+class _ArrivalLookSection extends StatelessWidget {
+  final SettingsController settings;
+  const _ArrivalLookSection({required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.zet;
+    const padding = EdgeInsets.symmetric(horizontal: ZetSpace.sheet);
+    return ListenableBuilder(
+      listenable: settings,
+      builder: (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SwitchListTile(
+            contentPadding: padding,
+            title: const Text('ZET zaslon'),
+            subtitle: const Text(
+              'Linija i odredište prikazuju se kao natpis na čelu tramvaja i '
+              'autobusa',
+            ),
+            value: settings.zetDisplay,
+            onChanged: settings.setZetDisplay,
+          ),
+          ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: !settings.zetDisplay
+                  ? const SizedBox(width: double.infinity)
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Preview: the same board as the list, „6 SOPOT“ in
+                        // the chosen colour (pitch 2.4 dp, 110 columns).
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                              ZetSpace.sheet, 4, ZetSpace.sheet, 12),
+                          child: Center(
+                            child: FutureBuilder<LedFont>(
+                              future: LedFont.load(),
+                              initialData: LedFont.instance,
+                              builder: (context, snap) {
+                                final font = snap.data;
+                                if (font == null) {
+                                  return const SizedBox(height: 55.2);
+                                }
+                                return Semantics(
+                                  label: 'Pregled natpisa',
+                                  excludeSemantics: true,
+                                  child: LedBoard(
+                                    font: font,
+                                    line: '6',
+                                    dest: 'Sopot',
+                                    cols: 110,
+                                    pitch: 2.4,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 7, vertical: 6),
+                                    color: LedPalette.forVehicle(
+                                        settings.zetColor,
+                                        isTram: true),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                              ZetSpace.sheet, 12, ZetSpace.sheet, 4),
+                          child: Text(
+                            'Boja zaslona',
+                            style: TextStyle(fontSize: 16, color: colors.text),
+                          ),
+                        ),
+                        RadioGroup<String>(
+                          groupValue: settings.zetColor,
+                          onChanged: (id) {
+                            if (id != null) settings.setZetColor(id);
+                          },
+                          child: Column(
+                            children: [
+                              for (final o in LedPalette.options)
+                                RadioListTile<String>(
+                                  value: o.id,
+                                  contentPadding: const EdgeInsets.fromLTRB(
+                                      ZetSpace.lg, 0, ZetSpace.sheet, 0),
+                                  title: Text(o.label),
+                                  subtitle: Text(o.subtitle),
+                                  secondary: _Swatches(o.swatches),
+                                ),
+                            ],
+                          ),
+                        ),
+                        SwitchListTile(
+                          contentPadding: padding,
+                          title: const Text('Pomicanje dugih natpisa'),
+                          subtitle: const Text(
+                            'Predugo odredište klizi ulijevo, kao na pravom '
+                            'zaslonu',
+                          ),
+                          value: settings.zetMarquee,
+                          onChanged: settings.setZetMarquee,
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 14 dp colour dots with a soft glow, right of each colour option.
+class _Swatches extends StatelessWidget {
+  final List<Color> colors;
+  const _Swatches(this.colors);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < colors.length; i++) ...[
+          if (i > 0) const SizedBox(width: 4),
+          Container(
+            width: 14,
+            height: 14,
+            decoration: BoxDecoration(
+              color: colors[i],
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: colors[i], blurRadius: 6)],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
 
 class _SectionLabel extends StatelessWidget {
   final String text;

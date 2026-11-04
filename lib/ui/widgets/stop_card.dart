@@ -6,6 +6,7 @@ import '../../data/models.dart';
 import '../../settings_controller.dart';
 import '../arrival_group.dart';
 import 'arrival_row.dart';
+import 'zet_arrival_row.dart';
 
 /// Header for the board: the stop name, walking time and a favourite star.
 class StopHeader extends StatelessWidget {
@@ -13,8 +14,9 @@ class StopHeader extends StatelessWidget {
   final SettingsController settings;
   final VoidCallback? onToggleFavourite;
 
-  /// Mode the board shows. A favourite is saved per name *and* mode, so the
-  /// tram and bus stops of the same name can be starred independently.
+  /// [kModeTram] / [kModeBus] bits the board shows. A favourite is saved per
+  /// name *and* mode, so the tram and bus stops of the same name can be
+  /// starred independently; with both shown, the star covers both.
   final int mode;
 
   const StopHeader({
@@ -34,7 +36,7 @@ class StopHeader extends StatelessWidget {
       builder: (context, _) {
         final colors = context.zet;
         final walkMin = (stop.distanceM / 80).round().clamp(1, 99);
-        final favourite = settings.isFavoriteStop(stop.stop, mode);
+        final favourite = settings.isFavoriteForAny(stop.stop, mode);
 
         return Padding(
           // Handoff: `padding: 0 12px 10px 24px` — the stop name lines up with
@@ -87,7 +89,7 @@ class StopHeader extends StatelessWidget {
                 onPressed: onToggleFavourite ??
                     () {
                       final wasFavorite = favourite;
-                      settings.toggleFavoriteStop(stop.stop, mode);
+                      settings.setFavoriteFor(stop.stop, mode, !wasFavorite);
                       ScaffoldMessenger.of(context)
                         ..hideCurrentSnackBar()
                         ..showSnackBar(
@@ -121,11 +123,15 @@ class StopBoard extends StatelessWidget {
   final DateTime now;
   final void Function(ArrivalGroup) onOpen;
 
+  /// Set while „ZET zaslon“ is on: rows are drawn as LED signs.
+  final ZetDisplayStyle? zet;
+
   const StopBoard({
     super.key,
     required this.stop,
     required this.now,
     required this.onOpen,
+    this.zet,
   });
 
   @override
@@ -144,6 +150,32 @@ class StopBoard extends StatelessWidget {
             fontSize: 14,
             color: colors.textDim,
             ),
+        ),
+      );
+    }
+
+    final zet = this.zet;
+    if (zet != null) {
+      // Variant 1b: 12 dp list gutter + 12 dp row padding puts the boards
+      // in line with the stop name; 2 dp between rows.
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: ZetSpace.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < groups.length; i++) ...[
+              if (i > 0) const SizedBox(height: 2),
+              ZetArrivalRow(
+                key: ValueKey(
+                  'z_${stop.stop.id}_${groups[i].routeShortName}_${groups[i].headsign}',
+                ),
+                group: groups[i],
+                now: now,
+                style: zet,
+                onTap: () => onOpen(groups[i]),
+              ),
+            ],
+          ],
         ),
       );
     }
