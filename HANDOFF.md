@@ -1,4 +1,11 @@
-# HANDOFF — Treska (ZET 2) v2.1.14
+# HANDOFF — Treska (ZET 2) v2.1.15
+
+## v2.1.15 (2026-11-04)
+
+- Postavke → KARTA → „Strelica smjera“: četiri izgleda strelice na oznakama
+  vozila (mala, veća, kontrastna, klin smjera), svaki s animiranim isječkom
+  karte. Zadano je kontrastna (bijela na tamnoj karti), jer se stara mala
+  strelica na mobitelu jedva vidjela.
 
 ## v2.1.14 (2026-11-04)
 

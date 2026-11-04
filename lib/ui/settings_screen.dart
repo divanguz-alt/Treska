@@ -9,6 +9,7 @@ import '../theme_controller.dart';
 import 'led/led_font.dart';
 import 'led/led_palette.dart';
 import 'led/led_panel.dart';
+import 'widgets/arrow_preview.dart';
 
 /// Full-screen settings: appearance, map radius, data controls and self-update.
 Future<void> showSettings(
@@ -155,7 +156,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
             fontSize: 22,
             fontWeight: FontWeight.w600,
             color: colors.text,
-            ),
+          ),
         ),
       ),
       body: ListView(
@@ -173,6 +174,29 @@ class _SettingsScreenState extends State<_SettingsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: ZetSpace.lg),
             child: _RadiusRow(controller: widget.settings),
           ),
+          const SizedBox(height: ZetSpace.lg),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              ZetSpace.lg,
+              0,
+              ZetSpace.lg,
+              ZetSpace.md,
+            ),
+            child: Text(
+              'Strelica smjera',
+              style: TextStyle(fontSize: 16, color: colors.text),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: ZetSpace.lg),
+            child: ListenableBuilder(
+              listenable: widget.settings,
+              builder: (context, _) => VehicleArrowPicker(
+                value: widget.settings.vehicleArrow,
+                onChanged: widget.settings.setVehicleArrow,
+              ),
+            ),
+          ),
           const SizedBox(height: ZetSpace.xl),
 
           _SectionLabel('PODACI', colors: colors),
@@ -187,7 +211,10 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                 ),
                 _InfoRow('Stajališta', '${status.stopCount}', colors: colors),
                 _InfoRow(
-                    'Aktivni polasci', '${status.tripCount}', colors: colors),
+                  'Aktivni polasci',
+                  '${status.tripCount}',
+                  colors: colors,
+                ),
                 _InfoRow(
                   'Osvježavanje',
                   '${stats?.refreshMs ?? 0} ms · '
@@ -219,7 +246,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                     fontSize: 13,
                     height: 1.4,
                     color: colors.textDim,
-                    ),
+                  ),
                 ),
               ],
             ),
@@ -237,7 +264,7 @@ class _SettingsScreenState extends State<_SettingsScreen> {
                   AppVersion.versionName.isEmpty
                       ? '—'
                       : '${AppVersion.versionName} '
-                          '(${AppVersion.versionCode})',
+                            '(${AppVersion.versionCode})',
                   colors: colors,
                 ),
                 const SizedBox(height: ZetSpace.md),
@@ -305,7 +332,11 @@ class _ArrivalLookSection extends StatelessWidget {
                         // the chosen colour (pitch 2.4 dp, 110 columns).
                         Padding(
                           padding: const EdgeInsets.fromLTRB(
-                              ZetSpace.sheet, 4, ZetSpace.sheet, 12),
+                            ZetSpace.sheet,
+                            4,
+                            ZetSpace.sheet,
+                            12,
+                          ),
                           child: Center(
                             child: FutureBuilder<LedFont>(
                               future: LedFont.load(),
@@ -325,10 +356,13 @@ class _ArrivalLookSection extends StatelessWidget {
                                     cols: 110,
                                     pitch: 2.4,
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 7, vertical: 6),
+                                      horizontal: 7,
+                                      vertical: 6,
+                                    ),
                                     color: LedPalette.forVehicle(
-                                        settings.zetColor,
-                                        isTram: true),
+                                      settings.zetColor,
+                                      isTram: true,
+                                    ),
                                   ),
                                 );
                               },
@@ -337,7 +371,11 @@ class _ArrivalLookSection extends StatelessWidget {
                         ),
                         Padding(
                           padding: const EdgeInsets.fromLTRB(
-                              ZetSpace.sheet, 12, ZetSpace.sheet, 4),
+                            ZetSpace.sheet,
+                            12,
+                            ZetSpace.sheet,
+                            4,
+                          ),
                           child: Text(
                             'Boja zaslona',
                             style: TextStyle(fontSize: 16, color: colors.text),
@@ -354,7 +392,11 @@ class _ArrivalLookSection extends StatelessWidget {
                                 RadioListTile<String>(
                                   value: o.id,
                                   contentPadding: const EdgeInsets.fromLTRB(
-                                      ZetSpace.lg, 0, ZetSpace.sheet, 0),
+                                    ZetSpace.lg,
+                                    0,
+                                    ZetSpace.sheet,
+                                    0,
+                                  ),
                                   title: Text(o.label),
                                   subtitle: Text(o.subtitle),
                                   secondary: _Swatches(o.swatches),
@@ -420,14 +462,18 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          ZetSpace.sheet, ZetSpace.sm, ZetSpace.sheet, ZetSpace.sm),
+        ZetSpace.sheet,
+        ZetSpace.sm,
+        ZetSpace.sheet,
+        ZetSpace.sm,
+      ),
       child: Text(
         text,
         style: TextStyle(
           fontSize: 14,
           fontWeight: FontWeight.w500,
           color: colors.primary,
-          ),
+        ),
       ),
     );
   }
@@ -446,19 +492,11 @@ class _ThemeRow extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Tema',
-              style: TextStyle(
-                fontSize: 16,
-                color: colors.text,
-                ),
-            ),
+            Text('Tema', style: TextStyle(fontSize: 16, color: colors.text)),
             const SizedBox(height: ZetSpace.md),
             SegmentedButton<ThemeMode>(
               showSelectedIcon: false,
-              style: const ButtonStyle(
-                visualDensity: VisualDensity.compact,
-              ),
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
               segments: const [
                 ButtonSegment(
                   value: ThemeMode.system,
@@ -501,31 +539,20 @@ class _RadiusRow extends StatelessWidget {
           children: [
             Text(
               'Radijus obližnjih stanica',
-              style: TextStyle(
-                fontSize: 16,
-                color: colors.text,
-                ),
+              style: TextStyle(fontSize: 16, color: colors.text),
             ),
             const SizedBox(height: 2),
             Text(
               'Stanice unutar ovog radijusa prikazuju se u kartici.',
-              style: TextStyle(
-                fontSize: 13,
-                color: colors.textDim,
-                ),
+              style: TextStyle(fontSize: 13, color: colors.textDim),
             ),
             const SizedBox(height: ZetSpace.md),
             SegmentedButton<double>(
               showSelectedIcon: false,
-              style: const ButtonStyle(
-                visualDensity: VisualDensity.compact,
-              ),
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
               segments: [
                 for (final r in SettingsController.radiusChoices)
-                  ButtonSegment(
-                    value: r,
-                    label: Text('${r.round()} m'),
-                  ),
+                  ButtonSegment(value: r, label: Text('${r.round()} m')),
               ],
               selected: {controller.radiusM},
               onSelectionChanged: (set) => controller.setRadius(set.first),
@@ -554,10 +581,7 @@ class _InfoRow extends StatelessWidget {
             width: 130,
             child: Text(
               label,
-              style: TextStyle(
-                fontSize: 14,
-                color: colors.textDim,
-                ),
+              style: TextStyle(fontSize: 14, color: colors.textDim),
             ),
           ),
           Expanded(
@@ -630,24 +654,21 @@ class _UpdateBody extends StatelessWidget {
                   checking
                       ? 'Provjeravam…'
                       : available
-                          ? 'Dostupna verzija ${release!.tag}'
-                          : check?.error != null
-                              ? 'Provjera nije uspjela'
-                              : 'Treska je ažurna',
+                      ? 'Dostupna verzija ${release!.tag}'
+                      : check?.error != null
+                      ? 'Provjera nije uspjela'
+                      : 'Treska je ažurna',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
                     color: available ? colors.primary : colors.text,
-                    ),
+                  ),
                 ),
               ),
               if (available && release != null && release.apkSize > 0)
                 Text(
                   _sizeLabel(release.apkSize),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: colors.textDim,
-                    ),
+                  style: TextStyle(fontSize: 13, color: colors.textDim),
                 ),
             ],
           ),
@@ -659,7 +680,7 @@ class _UpdateBody extends StatelessWidget {
                 fontSize: 13,
                 height: 1.35,
                 color: colors.danger,
-                ),
+              ),
             ),
           ],
           if (available && release != null) ...[
@@ -674,7 +695,7 @@ class _UpdateBody extends StatelessWidget {
                       fontSize: 13,
                       height: 1.4,
                       color: colors.text,
-                      ),
+                    ),
                   ),
                 ),
               ),
@@ -692,10 +713,7 @@ class _UpdateBody extends StatelessWidget {
                 progress >= 0
                     ? '${(progress * 100).clamp(0, 100).toStringAsFixed(0)} %'
                     : 'Preuzimam…',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: colors.textDim,
-                  ),
+                style: TextStyle(fontSize: 13, color: colors.textDim),
               ),
             ] else
               Row(
@@ -711,8 +729,11 @@ class _UpdateBody extends StatelessWidget {
                   IconButton(
                     tooltip: 'Otvori na GitHubu',
                     onPressed: () => UpdateService.openUrl(release.htmlUrl),
-                    icon: Icon(Icons.open_in_new,
-                        size: 20, color: colors.textDim),
+                    icon: Icon(
+                      Icons.open_in_new,
+                      size: 20,
+                      color: colors.textDim,
+                    ),
                   ),
                 ],
               ),
@@ -735,17 +756,14 @@ class _UpdateBody extends StatelessWidget {
                 fontSize: 13,
                 height: 1.35,
                 color: colors.textDim,
-                ),
+              ),
             ),
           ],
           if (release != null) ...[
             const SizedBox(height: 6),
             Text(
               'Izvor: github.com/${UpdateService.owner}/${UpdateService.repo}',
-              style: TextStyle(
-                fontSize: 12,
-                color: colors.textDim,
-                ),
+              style: TextStyle(fontSize: 12, color: colors.textDim),
             ),
           ],
         ],

@@ -43,7 +43,8 @@ lib/
     map_panel.dart       FlutterMap, vehicles, stops, header, legend, age chip
     board_panel.dart     tram/bus tabs, loading/error/empty states
     diagnostics_sheet.dart
-    settings_screen.dart theme, data controls, self-update, Izgled dolazaka
+    settings_screen.dart theme, data controls, self-update, Izgled dolazaka,
+                         Strelica smjera (widgets/arrow_preview.dart)
     led/                 ZET zaslon: led_font (assets/led_font.json),
                          led_layout (pure, ported from tool/led_reference.js),
                          led_panel (cached dot images), led_clock (one ticker),
@@ -130,6 +131,11 @@ markers) made the map stutter on the author's phone in 2.1.12.
 - Vehicle positions: VehiclePosition GPS → current RT stop → static schedule.
   Bearing: RT bearing (ZET publishes none today), else previous position of
   the same route, else bearing to the next stop.
+- The direction cue is a user setting (`vehicle_arrow`, Postavke → „Strelica
+  smjera“): `small` (the original chevron), `big`, `contrast` (default since
+  2.1.15; white on dark, ink on light) or `beam` (translucent wedge under the
+  badge). `lib/ui/widgets/arrow_preview.dart` shows each on an animated map
+  cut-out (one controller, still when animations are off).
 - Vehicles with **no GPS fix at all** are placed from the timetable, flagged
   `estimated`, drawn dimmed with an outer ring, and documented by the `PROCJENA`
   legend entry — they never read as measured positions.

@@ -8,7 +8,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:vector_map_tiles/vector_map_tiles.dart';
-import 'package:vector_tile_renderer/vector_tile_renderer.dart' show ThemeReader;
+import 'package:vector_tile_renderer/vector_tile_renderer.dart'
+    show ThemeReader;
 
 import '../core/theme.dart';
 import '../core/tokens.dart';
@@ -448,16 +449,17 @@ class _MapPanelState extends State<MapPanel> {
   bool _isFavoriteOnMap(StopInfo s, int modes) =>
       ((modes & kModeTram) != 0 &&
           widget.settings.isFavoriteOnMap(s, kModeTram)) ||
-      ((modes & kModeBus) != 0 &&
-          widget.settings.isFavoriteOnMap(s, kModeBus));
+      ((modes & kModeBus) != 0 && widget.settings.isFavoriteOnMap(s, kModeBus));
 
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
     // With the sheet hidden, the buttons and the map credit still stay above
     // the system gesture bar.
-    final bottomInset =
-        math.max(widget.bottomInsetPx, MediaQuery.paddingOf(context).bottom);
+    final bottomInset = math.max(
+      widget.bottomInsetPx,
+      MediaQuery.paddingOf(context).bottom,
+    );
     final vectorStyle = _vectorStyle(colors.mapStyleUrl);
     // Raster tiles draw while no vector style is configured, or after it
     // failed to load; while it is still loading the map shows its background.
@@ -482,10 +484,13 @@ class _MapPanelState extends State<MapPanel> {
               final vehicles = modes == kModeTram | kModeBus
                   ? widget.feed.vehicles.value
                   : widget.feed.vehicles.value
-                      .where((v) => v.isTram == (modes == kModeTram))
-                      .toList(growable: false);
-              final circles =
-                  _circlesFor(context, widget.feed.stops.value, modes);
+                        .where((v) => v.isTram == (modes == kModeTram))
+                        .toList(growable: false);
+              final circles = _circlesFor(
+                context,
+                widget.feed.stops.value,
+                modes,
+              );
               final radius = widget.settings.radiusM;
 
               StopInfo? focusedStop;
@@ -546,7 +551,8 @@ class _MapPanelState extends State<MapPanel> {
                       // suffix also retires tiles cached before local names
                       // (see _readStyle).
                       theme: vectorStyle.theme.copyWith(
-                          id: '${colors.mapStyleUrl.split('/').last}-local'),
+                        id: '${colors.mapStyleUrl.split('/').last}-local',
+                      ),
                       sprites: vectorStyle.sprites,
                       tileProviders: vectorStyle.providers,
                     ),
@@ -665,6 +671,7 @@ class _MapPanelState extends State<MapPanel> {
                             child: VehicleMarkerWidget(
                               vehicle: v,
                               selected: _isSelected(v),
+                              arrow: widget.settings.vehicleArrow,
                             ),
                           ),
                         ),
