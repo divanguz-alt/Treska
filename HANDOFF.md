@@ -1,4 +1,21 @@
-# HANDOFF — Treska (ZET 2) v2.1.11
+# HANDOFF — Treska (ZET 2) v2.1.12
+
+## v2.1.12 (2026-11-04)
+
+- Filtar Tramvaji/Autobusi (dizajnerska predaja `treska_zet_zaslon_handoff/`,
+  README §1, folder je u `.gitignore`): chipovi su neovisni, `show_trams` /
+  `show_buses`, ne mogu oba biti isključena. Tabla spaja tramvajska i
+  autobusna stajališta istog imena (`combineModes` u `models.dart`). Chipovi
+  se skrivaju kad stanica ima samo jednu vrstu. Karta više ne filtrira po
+  vrsti. Zvjezdica sprema ime za vrste koje se prikazuju.
+- ZET zaslon (§2–7, varijanta 1b): `lib/ui/led/` (font, čisti `layoutLed`,
+  `LedPanel`, `LedClockScope`), `lib/ui/widgets/zet_arrival_row.dart`.
+  `test/led_layout_test.dart` uspoređuje raspored točku po točku s
+  `tool/led_reference.js` (`node tool/led_golden.js >
+  test/fixtures/led_golden.json`). Animacije se gase i kad je Androidov
+  animator scale 0 (kanal `animatorsEnabled`), ne samo po Flutterovoj zastavici.
+- Emulator 2026-11-04 bio je prespor za klikove; ZET zaslon provjeren
+  screenshotom u svijetloj i tamnoj temi, mješovita lista samo u testovima.
 
 ## v2.1.11 (2026-11-04)
 

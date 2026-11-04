@@ -401,6 +401,8 @@ class _Swatches extends StatelessWidget {
               color: colors[i],
               shape: BoxShape.circle,
               boxShadow: [BoxShadow(color: colors[i], blurRadius: 6)],
+              // Keeps the white option visible on the light background.
+              border: Border.all(color: const Color(0x1F000000), width: 0.5),
             ),
           ),
         ],

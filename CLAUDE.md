@@ -43,9 +43,13 @@ lib/
     map_panel.dart       FlutterMap, vehicles, stops, header, legend, age chip
     board_panel.dart     tram/bus tabs, loading/error/empty states
     diagnostics_sheet.dart
-    settings_screen.dart theme, data controls, self-update
-    widgets/             arrival_row, stop_card, vehicle_marker, pulse,
-                         timer_builder
+    settings_screen.dart theme, data controls, self-update, Izgled dolazaka
+    led/                 ZET zaslon: led_font (assets/led_font.json),
+                         led_layout (pure, ported from tool/led_reference.js),
+                         led_panel (cached dot images), led_clock (one ticker),
+                         led_palette
+    widgets/             arrival_row, zet_arrival_row, stop_card,
+                         vehicle_marker, pulse, timer_builder
 test/                    models + theme + widget + RT/wire tests
 tool/                    dev benchmarks (not shipped)
 relay/                   Cloudflare Worker that relays the RT protobuf
@@ -97,6 +101,18 @@ Measured on the author's machine (Dart VM, real ZET feed):
   board to `snapshot`, header to `status`. A board update never rebuilds the map.
 - `RepaintBoundary` around the map and around each stop card.
 - Only the selected board list is built (no `TabBarView` with two live lists).
+- ZET zaslon: dots (with the blur glow) are rendered once into cached
+  `ui.Image`s; the marquee blits a pre-rendered strip one column at a time and
+  repaints only when a column or the „STIŽE“ blink changes. One `LedClock`
+  ticks only while a visible sign needs it, and never when animations are off
+  (`MediaQuery.disableAnimations` or Android's animator scale).
+
+### Tramvaji / Autobusi filter
+
+The chips are independent filters (`show_trams`, `show_buses`, never both
+off). The board merges the engine's per-mode stops by name (`combineModes`)
+into one time-sorted list; a stop with one mode hides the chips and shows that
+mode whatever the saved filter says. The map always shows both modes.
 
 ### Realtime semantics
 

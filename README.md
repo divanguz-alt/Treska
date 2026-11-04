@@ -10,7 +10,11 @@ stajališta.
   kašnjenja vozila, prigušeno = vozni red.
 - **Svježina podataka** je vidljiva: `◉ SADA` ili `◉ N min` uz sat u zaglavlju,
   pa se odmah vidi koliko su podaci stari.
-- **Tramvaji / autobusi** prebacuju se tabovima; karta prati odabrani način.
+- **Tramvaji / autobusi** su dva neovisna filtra iznad table: samo tramvaji,
+  samo autobusi ili oboje u jednoj listi po vremenu. Odabir se pamti; karta
+  uvijek prikazuje sva vozila.
+- **ZET zaslon** (Postavke → Izgled dolazaka): svaki dolazak se crta kao LED
+  natpis s čela vozila, s bojom po izboru i pomicanjem predugih odredišta.
 - **Light + dark** tema (Sustav / Svijetlo / Tamno) u izborniku gore desno.
 - **Postavke** (zubčanik u zaglavlju): tema, ponovno preuzimanje rasporeda i
   **ažuriranje aplikacije**. Aplikacija provjeri GitHub izdanja
