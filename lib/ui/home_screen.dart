@@ -18,6 +18,13 @@ import 'widgets/pulse.dart';
 /// The sheet has the three heights from the design handoff — peek / half / full
 /// — plus a fully collapsed state: dragging it down (or the chevron in its
 /// header) hands the screen back to the map, and a floating pill brings it back.
+/// A sheet this short (dp) counts as collapsed: it is hidden and the restore
+/// pill shows. [_BottomSheetHost] swaps to an empty body a little below it.
+/// The swap cancels a running collapse animation, so it must sit under this
+/// threshold, or the sheet can stall just above it as an empty strip with no
+/// pill.
+const double _kSheetSliverDp = 100;
+
 class HomeScreen extends StatefulWidget {
   final FeedController feed;
   final ThemeController themeController;
@@ -99,14 +106,18 @@ class _HomeScreenState extends State<HomeScreen>
   /// controller's own notification/build pass.
   void _onSheetChanged() {
     if (!mounted || !_sheetVisible || _hiding || _expanding) return;
-    if (!_sheet.isAttached || _sheet.size > 0.08) return;
+    if (!_isSliver) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_sheetVisible || _hiding || _expanding) return;
-      if (_sheet.isAttached && _sheet.size <= 0.08) {
+      if (_isSliver) {
         setState(() => _sheetVisible = false);
       }
     });
   }
+
+  bool get _isSliver =>
+      _sheet.isAttached &&
+      _sheet.size * MediaQuery.sizeOf(context).height <= _kSheetSliverDp;
 
   void _onRadius() {
     widget.feed.setRadius(widget.settings.radiusM);
@@ -200,29 +211,41 @@ class _HomeScreenState extends State<HomeScreen>
     final fractions = _fractions(screen);
     if (_sheet.size >= fractions.half - 0.01) return;
     _expanding = true;
-    _sheet
-        .animateTo(
-          fractions.half,
-          duration: ZetMotion.sheet,
-          curve: ZetMotion.emphasized,
-        )
+    _sheetAnimation(_sheet.animateTo(
+      fractions.half,
+      duration: ZetMotion.sheet,
+      curve: ZetMotion.emphasized,
+    ), ZetMotion.sheet)
         .whenComplete(() => _expanding = false);
   }
+
+  /// [DraggableScrollableController.animateTo]'s future never completes when
+  /// the animation is cancelled (a drag, a jump, a snap from a rebuild), which
+  /// used to leave [_hiding] / [_expanding] set for good and a sliver of sheet
+  /// stuck at the bottom. Give up waiting shortly after it should have ended.
+  Future<void> _sheetAnimation(Future<void> animation, Duration duration) =>
+      animation
+          .timeout(duration + const Duration(milliseconds: 150))
+          .catchError((Object _) {});
 
   Future<void> _collapseSheet() async {
     if (!_sheetVisible) return;
     _hiding = true;
     try {
       if (_sheet.isAttached) {
-        await _sheet.animateTo(
-          0,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
+        const duration = Duration(milliseconds: 220);
+        await _sheetAnimation(
+          _sheet.animateTo(0, duration: duration, curve: Curves.easeOut),
+          duration,
         );
       }
     } catch (_) {}
     _hiding = false;
     if (!mounted) return;
+    // Still well above the bottom: either the animation is still running
+    // (slow device; _onSheetChanged hides it on arrival) or the user pulled
+    // the sheet back up mid-collapse. Either way, leave it.
+    if (_sheet.isAttached && !_isSliver) return;
     setState(() => _sheetVisible = false);
   }
 
@@ -329,8 +352,7 @@ class _HomeScreenState extends State<HomeScreen>
                     // Also treat a sliver of sheet at the bottom as collapsed:
                     // the snap can stop just above zero, leaving an empty
                     // rounded strip with no handle to grab.
-                    final collapsed = !_sheetVisible ||
-                        (_sheet.isAttached && _sheet.size <= 0.08);
+                    final collapsed = !_sheetVisible || _isSliver;
                     if (!collapsed) return const SizedBox.shrink();
                     return Center(child: _ShowBoardPill(onTap: _expandSheet));
                   },
@@ -454,7 +476,7 @@ class _BottomSheetHost extends StatelessWidget {
               // scrollable must stay mounted: it owns the sheet's scroll
               // controller, and without a client the controller is detached and
               // the sheet can no longer be animated back up from the pill.
-              child: height < 90
+              child: height < _kSheetSliverDp - 10
                   ? CustomScrollView(
                       controller: scrollController,
                       physics: const ClampingScrollPhysics(

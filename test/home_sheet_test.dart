@@ -9,7 +9,87 @@ import 'package:zet2/settings_controller.dart';
 import 'package:zet2/theme_controller.dart';
 import 'package:zet2/ui/home_screen.dart';
 
+Future<DraggableScrollableController> _pumpHome(WidgetTester tester) async {
+  tester.view.physicalSize = const Size(800, 1200);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+
+  SharedPreferences.setMockInitialValues({});
+  final settings = SettingsController();
+  await settings.load();
+
+  final feed = FeedController();
+  const stop = StopInfo(
+    id: '98_1',
+    name: 'Črnomerec',
+    lat: 45.815,
+    lon: 15.934,
+    modes: kModeTram,
+  );
+  feed.stops.value = [stop];
+  feed.position.value = const PositionState(45.815, 15.9819, true);
+  feed.status.value = const FeedStatus(
+    staticReady: true,
+    loading: '',
+    stopCount: 1,
+  );
+  feed.snapshot.value = FeedSnapshot(
+    tramStops: [NearbyStop(stop: stop, distanceM: 120, arrivals: const [])],
+    updatedAt: DateTime.now(),
+  );
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildZetTheme(Brightness.light),
+      home: HomeScreen(
+        feed: feed,
+        themeController: ThemeController(),
+        settings: settings,
+      ),
+    ),
+  );
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+  return tester
+      .widget<DraggableScrollableSheet>(find.byType(DraggableScrollableSheet))
+      .controller!;
+}
+
 void main() {
+  testWidgets('an interrupted collapse still hides the sheet', (tester) async {
+    final controller = await _pumpHome(tester);
+
+    await tester.tap(
+        find.widgetWithIcon(IconButton, Icons.keyboard_arrow_down));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    // Any other sheet activity mid-animation (a drag, a jump, a rebuild that
+    // snaps) cancels it, and Flutter's animateTo future then never completes.
+    // Before the fix this left a rounded sliver of sheet stuck at the bottom.
+    // 85 dp: where the real collapse stalls, as the empty sliver body swaps
+    // in below 90 dp (screen here is 1200 dp tall).
+    controller.jumpTo(85 / 1200);
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    expect(find.byType(DraggableScrollableSheet), findsNothing);
+    expect(find.text('Prikaži polaske'), findsOneWidget);
+  });
+
+  testWidgets('a sheet pulled back up mid-collapse stays', (tester) async {
+    final controller = await _pumpHome(tester);
+
+    await tester.tap(
+        find.widgetWithIcon(IconButton, Icons.keyboard_arrow_down));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    controller.jumpTo(0.4);
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+    expect(find.text('Tramvaji 0'), findsOneWidget);
+  });
+
   testWidgets('the real home sheet collapses, restores and drags away',
       (tester) async {
     tester.view.physicalSize = const Size(800, 1200);

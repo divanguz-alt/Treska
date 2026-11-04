@@ -609,43 +609,48 @@ class _BoardLegend extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(top: BorderSide(color: colors.borderStrong)),
       ),
-      child: Row(
-        children: [
-          _LegendItem(
-            dot: Container(
-              width: 7,
-              height: 7,
-              decoration:
-                  BoxDecoration(shape: BoxShape.circle, color: colors.ok),
-            ),
-            label: 'Uživo (GPS)',
-            style: style,
-          ),
-          const SizedBox(width: ZetSpace.lg),
-          _LegendItem(
-            dot: Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: colors.textDim, width: 1.4),
+      // Shrinks instead of overflowing on narrow phones or large text.
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Row(
+          children: [
+            _LegendItem(
+              dot: Container(
+                width: 7,
+                height: 7,
+                decoration:
+                    BoxDecoration(shape: BoxShape.circle, color: colors.ok),
               ),
+              label: 'ZET prognoza',
+              style: style,
             ),
-            label: 'Procjena',
-            style: style,
-          ),
-          const SizedBox(width: ZetSpace.lg),
-          _LegendItem(
-            dot: Container(
-              width: 7,
-              height: 7,
-              decoration:
-                  BoxDecoration(shape: BoxShape.circle, color: colors.border),
+            const SizedBox(width: ZetSpace.lg),
+            _LegendItem(
+              dot: Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: colors.textDim, width: 1.4),
+                ),
+              ),
+              label: 'Procjena iz kašnjenja',
+              style: style,
             ),
-            label: 'Raspored',
-            style: style,
-          ),
-        ],
+            const SizedBox(width: ZetSpace.lg),
+            _LegendItem(
+              dot: Container(
+                width: 7,
+                height: 7,
+                decoration:
+                    BoxDecoration(shape: BoxShape.circle, color: colors.border),
+              ),
+              label: 'Raspored',
+              style: style,
+            ),
+          ],
+        ),
       ),
     );
   }

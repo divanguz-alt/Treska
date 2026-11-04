@@ -1,11 +1,14 @@
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:vector_map_tiles/vector_map_tiles.dart';
+import 'package:vector_tile_renderer/vector_tile_renderer.dart' show ThemeReader;
 
 import '../core/theme.dart';
 import '../core/tokens.dart';
@@ -139,8 +142,7 @@ class _MapPanelState extends State<MapPanel> {
     if (url.isEmpty) return null;
     if (_styles.containsKey(url)) return _styles[url];
     if (_stylesLoading.add(url)) {
-      StyleReader(uri: url)
-          .read()
+      _readStyle(url)
           .timeout(const Duration(seconds: 20))
           .then<Style?>((style) => style, onError: (_) => null)
           .then((style) {
@@ -150,6 +152,32 @@ class _MapPanelState extends State<MapPanel> {
           });
     }
     return null;
+  }
+
+  /// OpenFreeMap's positron labels prefer `name_en` ("Tkalčićeva St"). Treska
+  /// shows local names, so the theme is rebuilt from the style JSON with
+  /// `name_en` read as `name`; tiles, sources and sprites stay as published.
+  /// If that second read fails, the unmodified style is used.
+  static Future<Style> _readStyle(String url) async {
+    final style = await StyleReader(uri: url).read();
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode != 200) return style;
+      final json = jsonDecode(
+        utf8.decode(response.bodyBytes).replaceAll('"name_en"', '"name"'),
+      );
+      if (json is! Map<String, dynamic>) return style;
+      return Style(
+        name: style.name,
+        theme: ThemeReader().read(json),
+        providers: style.providers,
+        sprites: style.sprites,
+        center: style.center,
+        zoom: style.zoom,
+      );
+    } catch (_) {
+      return style;
+    }
   }
 
   /// Set from [MapOptions.onMapReady]. Reading `MapController.camera` before the
@@ -420,7 +448,10 @@ class _MapPanelState extends State<MapPanel> {
   @override
   Widget build(BuildContext context) {
     final colors = context.zet;
-    final bottomInset = widget.bottomInsetPx;
+    // With the sheet hidden, the buttons and the map credit still stay above
+    // the system gesture bar.
+    final bottomInset =
+        math.max(widget.bottomInsetPx, MediaQuery.paddingOf(context).bottom);
     final vectorStyle = _vectorStyle(colors.mapStyleUrl);
     // Raster tiles draw while no vector style is configured, or after it
     // failed to load; while it is still loading the map shows its background.
@@ -505,9 +536,11 @@ class _MapPanelState extends State<MapPanel> {
                       ),
                       // OpenFreeMap's styles all carry the id "default",
                       // and the tile cache is keyed by theme id: without a
-                      // distinct id the light map reuses dark tiles.
-                      theme: vectorStyle.theme
-                          .copyWith(id: colors.mapStyleUrl.split('/').last),
+                      // distinct id the light map reuses dark tiles. The
+                      // suffix also retires tiles cached before local names
+                      // (see _readStyle).
+                      theme: vectorStyle.theme.copyWith(
+                          id: '${colors.mapStyleUrl.split('/').last}-local'),
                       sprites: vectorStyle.sprites,
                       tileProviders: vectorStyle.providers,
                     ),
