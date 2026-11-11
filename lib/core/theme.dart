@@ -37,6 +37,14 @@ class ZetColors extends ThemeExtension<ZetColors> {
   final Color bus;
   final Color onBus;
 
+  /// The tapped vehicle's line on the map: its route and every vehicle of
+  /// that line. Picked away from the base tram blue and bus orange (and from
+  /// the red live / green ok colours) so the line stands out from both modes.
+  final Color tramHi;
+  final Color onTramHi;
+  final Color busHi;
+  final Color onBusHi;
+
   final Color danger;
   final Color ok;
   final Color warn;
@@ -89,6 +97,10 @@ class ZetColors extends ThemeExtension<ZetColors> {
     required this.onTram,
     required this.bus,
     required this.onBus,
+    required this.tramHi,
+    required this.onTramHi,
+    required this.busHi,
+    required this.onBusHi,
     required this.danger,
     required this.ok,
     required this.warn,
@@ -128,6 +140,10 @@ class ZetColors extends ThemeExtension<ZetColors> {
     onTram: Color(0xFF031D44),
     bus: Color(0xFFF2AD73),
     onBus: Color(0xFF401A01),
+    tramHi: Color(0xFFFF5FB4),
+    onTramHi: Color(0xFF3D0024),
+    busHi: Color(0xFF3FE0D0),
+    onBusHi: Color(0xFF00332E),
     danger: Color(0xFFFD7468),
     ok: Color(0xFF6FD087),
     warn: Color(0xFFF2B966),
@@ -140,9 +156,11 @@ class ZetColors extends ThemeExtension<ZetColors> {
     mapStyleUrl: 'https://tiles.openfreemap.org/styles/dark',
     // Fallback: Esri's dark canvas. Labels are a separate reference layer,
     // stacked on top by the map panel.
-    tileUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/'
+    tileUrl:
+        'https://server.arcgisonline.com/ArcGIS/rest/services/'
         'Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-    tileLabelsUrl: 'https://server.arcgisonline.com/ArcGIS/rest/services/'
+    tileLabelsUrl:
+        'https://server.arcgisonline.com/ArcGIS/rest/services/'
         'Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
     tileSubdomains: [],
     tileAttribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
@@ -170,6 +188,10 @@ class ZetColors extends ThemeExtension<ZetColors> {
     onTram: Color(0xFFFCFCFC),
     bus: Color(0xFFB55422),
     onBus: Color(0xFFFCFCFC),
+    tramHi: Color(0xFFC2187A),
+    onTramHi: Color(0xFFFFFFFF),
+    busHi: Color(0xFF00897B),
+    onBusHi: Color(0xFFFFFFFF),
     danger: Color(0xFFC0281B),
     ok: Color(0xFF1B9247),
     warn: Color(0xFF9D5300),
@@ -207,6 +229,10 @@ class ZetColors extends ThemeExtension<ZetColors> {
     Color? onTram,
     Color? bus,
     Color? onBus,
+    Color? tramHi,
+    Color? onTramHi,
+    Color? busHi,
+    Color? onBusHi,
     Color? danger,
     Color? ok,
     Color? warn,
@@ -243,6 +269,10 @@ class ZetColors extends ThemeExtension<ZetColors> {
       onTram: onTram ?? this.onTram,
       bus: bus ?? this.bus,
       onBus: onBus ?? this.onBus,
+      tramHi: tramHi ?? this.tramHi,
+      onTramHi: onTramHi ?? this.onTramHi,
+      busHi: busHi ?? this.busHi,
+      onBusHi: onBusHi ?? this.onBusHi,
       danger: danger ?? this.danger,
       ok: ok ?? this.ok,
       warn: warn ?? this.warn,
@@ -285,6 +315,10 @@ class ZetColors extends ThemeExtension<ZetColors> {
       onTram: l(onTram, other.onTram),
       bus: l(bus, other.bus),
       onBus: l(onBus, other.onBus),
+      tramHi: l(tramHi, other.tramHi),
+      onTramHi: l(onTramHi, other.onTramHi),
+      busHi: l(busHi, other.busHi),
+      onBusHi: l(onBusHi, other.onBusHi),
       danger: l(danger, other.danger),
       ok: l(ok, other.ok),
       warn: l(warn, other.warn),
@@ -298,8 +332,7 @@ class ZetColors extends ThemeExtension<ZetColors> {
       tileLabelsUrl: t < 0.5 ? tileLabelsUrl : other.tileLabelsUrl,
       tileSubdomains: t < 0.5 ? tileSubdomains : other.tileSubdomains,
       tileAttribution: t < 0.5 ? tileAttribution : other.tileAttribution,
-      tileMaxNativeZoom:
-          t < 0.5 ? tileMaxNativeZoom : other.tileMaxNativeZoom,
+      tileMaxNativeZoom: t < 0.5 ? tileMaxNativeZoom : other.tileMaxNativeZoom,
       tileIsDark: t < 0.5 ? tileIsDark : other.tileIsDark,
     );
   }
@@ -362,13 +395,13 @@ ThemeData buildZetTheme(Brightness brightness) {
 
   return base.copyWith(
     extensions: [c],
-    textTheme: base.textTheme.apply(
-      bodyColor: c.text,
-      displayColor: c.text,
-    ),
+    textTheme: base.textTheme.apply(bodyColor: c.text, displayColor: c.text),
     iconTheme: IconThemeData(color: c.textDim, size: 24),
-    dividerTheme:
-        DividerThemeData(color: c.borderStrong, thickness: 1, space: 1),
+    dividerTheme: DividerThemeData(
+      color: c.borderStrong,
+      thickness: 1,
+      space: 1,
+    ),
     appBarTheme: AppBarTheme(
       backgroundColor: c.bg,
       foregroundColor: c.text,
@@ -382,22 +415,17 @@ ThemeData buildZetTheme(Brightness brightness) {
       unselectedLabelColor: c.textDim,
       indicatorColor: c.primary,
       dividerColor: c.borderStrong,
-      labelStyle: const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w500,
-       
-      ),
-      unselectedLabelStyle: const TextStyle(
-        fontSize: 14,
-       
-      ),
+      labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+      unselectedLabelStyle: const TextStyle(fontSize: 14),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: c.bg,
       surfaceTintColor: Colors.transparent,
       modalBackgroundColor: c.bg,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(ZetRadius.sheet)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(ZetRadius.sheet),
+        ),
       ),
       dragHandleColor: c.border,
       dragHandleSize: const Size(32, 4),
@@ -412,8 +440,7 @@ ThemeData buildZetTheme(Brightness brightness) {
     ),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: c.inverse,
-      contentTextStyle:
-          TextStyle(color: c.onInverse, fontSize: 14),
+      contentTextStyle: TextStyle(color: c.onInverse, fontSize: 14),
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(ZetRadius.chip),
@@ -435,7 +462,6 @@ ThemeData buildZetTheme(Brightness brightness) {
         fontSize: 14,
         fontWeight: FontWeight.w500,
         color: c.text,
-       
       ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(ZetRadius.chip),
@@ -445,11 +471,7 @@ ThemeData buildZetTheme(Brightness brightness) {
       style: FilledButton.styleFrom(
         backgroundColor: c.primary,
         foregroundColor: c.onPrimary,
-        textStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-         
-        ),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ZetRadius.pill),
         ),
@@ -459,11 +481,7 @@ ThemeData buildZetTheme(Brightness brightness) {
       style: OutlinedButton.styleFrom(
         foregroundColor: c.primary,
         side: BorderSide(color: c.border),
-        textStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-         
-        ),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ZetRadius.pill),
         ),
@@ -471,9 +489,7 @@ ThemeData buildZetTheme(Brightness brightness) {
     ),
     segmentedButtonTheme: SegmentedButtonThemeData(
       style: ButtonStyle(
-        textStyle: const WidgetStatePropertyAll(
-          TextStyle(fontSize: 14),
-        ),
+        textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 14)),
         backgroundColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
               ? c.primaryContainer
@@ -500,8 +516,9 @@ SystemUiOverlayStyle zetSystemOverlay(Brightness brightness) {
     statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
     statusBarBrightness: dark ? Brightness.dark : Brightness.light,
     systemNavigationBarColor: c.bg,
-    systemNavigationBarIconBrightness:
-        dark ? Brightness.light : Brightness.dark,
+    systemNavigationBarIconBrightness: dark
+        ? Brightness.light
+        : Brightness.dark,
   );
 }
 

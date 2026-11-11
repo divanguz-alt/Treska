@@ -64,11 +64,16 @@ class VehicleMarkerWidget extends StatelessWidget {
   /// How the direction of travel is drawn.
   final VehicleArrow arrow;
 
+  /// Same line as the vehicle tapped on the map: drawn in the line
+  /// highlight colour instead of the mode colour.
+  final bool highlighted;
+
   const VehicleMarkerWidget({
     super.key,
     required this.vehicle,
     this.selected = false,
     this.arrow = VehicleArrow.fallback,
+    this.highlighted = false,
   });
 
   @override
@@ -76,8 +81,12 @@ class VehicleMarkerWidget extends StatelessWidget {
     final colors = context.zet;
     final isTram = vehicle.isTram;
     final label = vehicle.routeShortName;
-    final fill = isTram ? colors.tram : colors.bus;
-    final ink = isTram ? colors.onTram : colors.onBus;
+    final fill = highlighted
+        ? (isTram ? colors.tramHi : colors.busHi)
+        : (isTram ? colors.tram : colors.bus);
+    final ink = highlighted
+        ? (isTram ? colors.onTramHi : colors.onBusHi)
+        : (isTram ? colors.onTram : colors.onBus);
 
     // Vehicles ZET never sent a GPS fix for are placed from the timetable.
     // Dim them so they never read as live positions.

@@ -360,6 +360,25 @@ class _MapPanelState extends State<MapPanel> {
     });
   }
 
+  /// Same line as the tapped vehicle (route number and mode).
+  bool _isSameLine(Vehicle vehicle) {
+    final selected = _selectedVehicle;
+    return selected != null &&
+        selected.routeShortName == vehicle.routeShortName &&
+        selected.isTram == vehicle.isTram;
+  }
+
+  /// [vehicles] with the tapped line's vehicles moved to the end.
+  List<Vehicle> _lineLast(List<Vehicle> vehicles) {
+    if (_selectedVehicle == null) return vehicles;
+    return [
+      for (final v in vehicles)
+        if (!_isSameLine(v)) v,
+      for (final v in vehicles)
+        if (_isSameLine(v)) v,
+    ];
+  }
+
   bool _isSelected(Vehicle vehicle) {
     final selected = _selectedVehicle;
     if (selected == null) return false;
@@ -634,11 +653,10 @@ class _MapPanelState extends State<MapPanel> {
                         Polyline(
                           points: selectedShape,
                           strokeWidth: 5,
-                          color:
-                              (selectedVehicle?.isTram ?? true
-                                      ? colors.tram
-                                      : colors.bus)
-                                  .withValues(alpha: 0.9),
+                          // The line's highlight colour, like its vehicles.
+                          color: selectedVehicle?.isTram ?? true
+                              ? colors.tramHi
+                              : colors.busHi,
                           borderStrokeWidth: 2,
                           borderColor: colors.bg,
                         ),
@@ -659,7 +677,8 @@ class _MapPanelState extends State<MapPanel> {
                   ),
                   MarkerLayer(
                     markers: [
-                      for (final v in vehicles)
+                      // The tapped line's vehicles last, so they sit on top.
+                      for (final v in _lineLast(vehicles))
                         Marker(
                           point: LatLng(v.lat, v.lon),
                           width: 56,
@@ -672,6 +691,7 @@ class _MapPanelState extends State<MapPanel> {
                               vehicle: v,
                               selected: _isSelected(v),
                               arrow: widget.settings.vehicleArrow,
+                              highlighted: _isSameLine(v),
                             ),
                           ),
                         ),
@@ -828,8 +848,9 @@ class _VehicleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.zet;
     final isTram = vehicle.isTram;
-    final fill = isTram ? colors.tram : colors.bus;
-    final ink = isTram ? colors.onTram : colors.onBus;
+    // Same colour as the line's badges and route on the map.
+    final fill = isTram ? colors.tramHi : colors.busHi;
+    final ink = isTram ? colors.onTramHi : colors.onBusHi;
 
     final subtitle = loading
         ? 'Tražim rutu…'

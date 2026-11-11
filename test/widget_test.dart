@@ -16,12 +16,12 @@ void main() {
   final now = DateTime(2026, 10, 22, 17, 30, 0);
 
   StopInfo tramStop() => const StopInfo(
-        id: '98_1',
-        name: 'Črnomerec',
-        lat: 45.815,
-        lon: 15.934,
-        modes: kModeTram,
-      );
+    id: '98_1',
+    name: 'Črnomerec',
+    lat: 45.815,
+    lon: 15.934,
+    modes: kModeTram,
+  );
 
   Arrival arrival({
     String route = '17',
@@ -30,20 +30,19 @@ void main() {
     ArrivalSource source = ArrivalSource.scheduled,
     int delaySec = 0,
     int type = kRouteTypeTram,
-  }) =>
-      Arrival(
-        routeShortName: route,
-        headsign: headsign,
-        time: now.add(after),
-        source: source,
-        routeType: type,
-        delaySec: delaySec,
-      );
+  }) => Arrival(
+    routeShortName: route,
+    headsign: headsign,
+    time: now.add(after),
+    source: source,
+    routeType: type,
+    delaySec: delaySec,
+  );
 
   Widget host(Widget child, Brightness brightness) => MaterialApp(
-        theme: buildZetTheme(brightness),
-        home: Scaffold(body: child),
-      );
+    theme: buildZetTheme(brightness),
+    home: Scaffold(body: child),
+  );
 
   group('theme', () {
     test('exposes ZetColors in both brightnesses', () {
@@ -55,7 +54,9 @@ void main() {
         expect(theme.scaffoldBackgroundColor, colors.bg);
         expect(
           colors.tileUrl,
-          contains(brightness == Brightness.dark ? 'arcgisonline' : 'openstreetmap'),
+          contains(
+            brightness == Brightness.dark ? 'arcgisonline' : 'openstreetmap',
+          ),
         );
         expect(colors.tileAttribution, isNotEmpty);
         expect(colors.primary, isNot(colors.bg));
@@ -106,7 +107,10 @@ void main() {
     test('caps the number of groups', () {
       final many = [
         for (var i = 0; i < 20; i++)
-          arrival(route: '$i', after: Duration(minutes: i + 1)),
+          arrival(
+            route: '$i',
+            after: Duration(minutes: i + 1),
+          ),
       ];
       expect(groupArrivals(many, maxGroups: 5).length, 5);
     });
@@ -114,7 +118,10 @@ void main() {
     test('bestSource prefers realtime over estimate over schedule', () {
       final g = groupArrivals([
         arrival(source: ArrivalSource.scheduled),
-        arrival(source: ArrivalSource.realtime, after: const Duration(minutes: 5)),
+        arrival(
+          source: ArrivalSource.realtime,
+          after: const Duration(minutes: 5),
+        ),
       ]).first;
       expect(g.bestSource, ArrivalSource.realtime);
       expect(g.hasRealtime, isTrue);
@@ -128,10 +135,7 @@ void main() {
     ]).first;
 
     await tester.pumpWidget(
-      host(
-        ArrivalRowWidget(group: group, now: now),
-        Brightness.dark,
-      ),
+      host(ArrivalRowWidget(group: group, now: now), Brightness.dark),
     );
     await tester.pump();
 
@@ -144,7 +148,10 @@ void main() {
 
   testWidgets('live arrival inside 45 s shows the Stiže pill', (tester) async {
     final group = groupArrivals([
-      arrival(after: const Duration(seconds: 20), source: ArrivalSource.realtime),
+      arrival(
+        after: const Duration(seconds: 20),
+        source: ArrivalSource.realtime,
+      ),
     ]).first;
 
     await tester.pumpWidget(
@@ -155,7 +162,9 @@ void main() {
     expect(find.text('Stiže'), findsOneWidget);
   });
 
-  testWidgets('scheduled arrival shows a clock time, not minutes', (tester) async {
+  testWidgets('scheduled arrival shows a clock time, not minutes', (
+    tester,
+  ) async {
     final group = groupArrivals([
       arrival(after: const Duration(minutes: 10)),
     ]).first;
@@ -169,8 +178,9 @@ void main() {
     expect(find.text('Stiže'), findsNothing);
   });
 
-  testWidgets('estimated arrival is marked approximate with a delay',
-      (tester) async {
+  testWidgets('estimated arrival is marked approximate with a delay', (
+    tester,
+  ) async {
     final group = groupArrivals([
       arrival(
         after: const Duration(minutes: 4),
@@ -188,15 +198,20 @@ void main() {
     expect(find.textContaining('kasni 3 min'), findsOneWidget);
   });
 
-  testWidgets('stop header shows name, distance and walking time',
-      (tester) async {
+  testWidgets('stop header shows name, distance and walking time', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsController();
     await settings.load();
     await tester.pumpWidget(
       host(
         StopHeader(
-          stop: NearbyStop(stop: tramStop(), distanceM: 160, arrivals: const []),
+          stop: NearbyStop(
+            stop: tramStop(),
+            distanceM: 160,
+            arrivals: const [],
+          ),
           settings: settings,
         ),
         Brightness.light,
@@ -209,15 +224,20 @@ void main() {
     expect(find.textContaining('2 min hoda'), findsOneWidget);
   });
 
-  testWidgets('favourite star toggles and is saved for the map',
-      (tester) async {
+  testWidgets('favourite star toggles and is saved for the map', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsController();
     await settings.load();
     await tester.pumpWidget(
       host(
         StopHeader(
-          stop: NearbyStop(stop: tramStop(), distanceM: 160, arrivals: const []),
+          stop: NearbyStop(
+            stop: tramStop(),
+            distanceM: 160,
+            arrivals: const [],
+          ),
           settings: settings,
           mode: kModeTram,
         ),
@@ -247,22 +267,40 @@ void main() {
     final settings = SettingsController();
     await settings.load();
     const tramA = StopInfo(
-        id: 't1', name: 'Trg dr. F. Tuđmana', lat: 45.81, lon: 15.96,
-        modes: kModeTram);
+      id: 't1',
+      name: 'Trg dr. F. Tuđmana',
+      lat: 45.81,
+      lon: 15.96,
+      modes: kModeTram,
+    );
     const tramB = StopInfo(
-        id: 't2', name: 'Trg dr. F. Tuđmana ', lat: 45.811, lon: 15.961,
-        modes: kModeTram);
+      id: 't2',
+      name: 'Trg dr. F. Tuđmana ',
+      lat: 45.811,
+      lon: 15.961,
+      modes: kModeTram,
+    );
     const bus = StopInfo(
-        id: 'b1', name: 'Trg dr. F. Tuđmana', lat: 45.812, lon: 15.962,
-        modes: kModeBus);
+      id: 'b1',
+      name: 'Trg dr. F. Tuđmana',
+      lat: 45.812,
+      lon: 15.962,
+      modes: kModeBus,
+    );
 
     await settings.toggleFavoriteStop(tramA, kModeTram);
 
     expect(settings.isFavoriteOnMap(tramA, kModeTram), isTrue);
-    expect(settings.isFavoriteOnMap(tramB, kModeTram), isTrue,
-        reason: 'every tram platform of the name is starred');
-    expect(settings.isFavoriteOnMap(bus, kModeBus), isFalse,
-        reason: 'the bus stop of the same name is saved separately');
+    expect(
+      settings.isFavoriteOnMap(tramB, kModeTram),
+      isTrue,
+      reason: 'every tram platform of the name is starred',
+    );
+    expect(
+      settings.isFavoriteOnMap(bus, kModeBus),
+      isFalse,
+      reason: 'the bus stop of the same name is saved separately',
+    );
 
     await settings.toggleFavoriteStop(bus, kModeBus);
     expect(settings.isFavoriteOnMap(bus, kModeBus), isTrue);
@@ -286,15 +324,20 @@ void main() {
     expect(settings.isFavoriteStop(tramStop(), kModeTram), isTrue);
   });
 
-  testWidgets('stop board renders every group and stays tappable',
-      (tester) async {
+  testWidgets('stop board renders every group and stays tappable', (
+    tester,
+  ) async {
     ArrivalGroup? opened;
     final stop = NearbyStop(
       stop: tramStop(),
       distanceM: 62,
       arrivals: [
         arrival(after: const Duration(minutes: 3)),
-        arrival(route: '6', headsign: 'Sopot', after: const Duration(minutes: 6)),
+        arrival(
+          route: '6',
+          headsign: 'Sopot',
+          after: const Duration(minutes: 6),
+        ),
       ],
     );
 
@@ -330,8 +373,10 @@ void main() {
       expect(MapPanel.zoomForRadius(800), 14);
       expect(MapPanel.zoomForRadius(1200), 13);
       // Larger radii must never zoom *in*.
-      expect(MapPanel.zoomForRadius(1200),
-          lessThan(MapPanel.zoomForRadius(400)));
+      expect(
+        MapPanel.zoomForRadius(1200),
+        lessThan(MapPanel.zoomForRadius(400)),
+      );
     });
 
     // Centring must offset the camera by half the hidden height, or the user
@@ -364,8 +409,9 @@ void main() {
     // A route number must never read upside-down. Only the badge outline is
     // rotated to the bearing; the label is a sibling of the rotating shape, so
     // no bearing — including due south — can turn the digits over.
-    testWidgets('never rotates the route number, at any bearing',
-        (tester) async {
+    testWidgets('never rotates the route number, at any bearing', (
+      tester,
+    ) async {
       const label = '17';
 
       for (final bearing in [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0]) {
@@ -393,8 +439,11 @@ void main() {
         // The text widget exists and is upright: its transform chain contains
         // no rotation. Find the ancestor Transform.rotate widgets that wrap it.
         final textFinder = find.text(label);
-        expect(textFinder, findsOneWidget,
-            reason: 'label must render at bearing $bearing');
+        expect(
+          textFinder,
+          findsOneWidget,
+          reason: 'label must render at bearing $bearing',
+        );
 
         final rotatedAncestors = find.ancestor(
           of: textFinder,
@@ -407,10 +456,53 @@ void main() {
           final widget = element.widget as Transform;
           final m = widget.transform;
           // A pure translation/scale has m[1] == m[2] == 0; a rotation does not.
-          final isRotation = m.storage[1].abs() > 0.001 ||
-              m.storage[2].abs() > 0.001;
-          expect(isRotation, isFalse,
-              reason: 'the number must not be rotated at bearing $bearing');
+          final isRotation =
+              m.storage[1].abs() > 0.001 || m.storage[2].abs() > 0.001;
+          expect(
+            isRotation,
+            isFalse,
+            reason: 'the number must not be rotated at bearing $bearing',
+          );
+        }
+      }
+    });
+
+    testWidgets('the tapped line is drawn in its highlight colours', (
+      tester,
+    ) async {
+      for (final b in Brightness.values) {
+        final colors = b == Brightness.dark ? ZetColors.dark : ZetColors.light;
+        for (final type in [kRouteTypeTram, 3]) {
+          final tram = type == kRouteTypeTram;
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildZetTheme(b),
+              home: Scaffold(
+                body: Center(
+                  child: VehicleMarkerWidget(
+                    highlighted: true,
+                    vehicle: Vehicle(
+                      routeShortName: '17',
+                      routeType: type,
+                      lat: 45.815,
+                      lon: 15.9819,
+                      bearing: 90,
+                      headsign: 'Prečko',
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          // MaterialApp animates a theme change.
+          await tester.pump(const Duration(seconds: 1));
+          final text = tester.widget<Text>(find.text('17'));
+          expect(text.style!.color, tram ? colors.onTramHi : colors.onBusHi);
+          // Never the colour of either mode, so the line stands out.
+          for (final hi in [colors.tramHi, colors.busHi]) {
+            expect(hi, isNot(colors.tram));
+            expect(hi, isNot(colors.bus));
+          }
         }
       }
     });

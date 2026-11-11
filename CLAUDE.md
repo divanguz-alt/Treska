@@ -136,6 +136,10 @@ markers) made the map stutter on the author's phone in 2.1.12.
   2.1.15; white on dark, ink on light) or `beam` (translucent wedge under the
   badge). `lib/ui/widgets/arrow_preview.dart` shows each on an animated map
   cut-out (one controller, still when animations are off).
+- Tapping a vehicle highlights its whole line: the route polyline and every
+  vehicle with the same route number and mode switch to `ZetColors.tramHi`
+  (pink) or `busHi` (turquoise) and are drawn on top. Orange was not used for
+  trams because buses are already orange.
 - Vehicles with **no GPS fix at all** are placed from the timetable, flagged
   `estimated`, drawn dimmed with an outer ring, and documented by the `PROCJENA`
   legend entry — they never read as measured positions.

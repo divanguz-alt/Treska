@@ -1,4 +1,10 @@
-# HANDOFF — Treska (ZET 2) v2.1.15
+# HANDOFF — Treska (ZET 2) v2.1.16
+
+## v2.1.16 (2026-11-11)
+
+- Dodir na vozilo ističe cijelu liniju: ruta i sva vozila iste linije
+  postaju ružičasta (tramvaj) ili tirkizna (autobus) i crtaju se iznad
+  ostalih. Narančasta nije uzeta za tramvaje jer su autobusi već narančasti.
 
 ## v2.1.15 (2026-11-04)
 
