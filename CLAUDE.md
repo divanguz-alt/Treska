@@ -129,8 +129,17 @@ markers) made the map stutter on the author's phone in 2.1.12.
   board stays honest about a vehicle that is already 3 minutes late further down
   the line.
 - Vehicle positions: VehiclePosition GPS → current RT stop → static schedule.
-  Bearing: RT bearing (ZET publishes none today), else previous position of
-  the same route, else bearing to the next stop.
+  Bearing: RT bearing (ZET publishes none today), else the movement since
+  the previous refresh (>8 m), else the previous heading (standing still),
+  else towards the next not-yet-reached stop of the vehicle's own trip
+  pattern, so arrows show on the very first refresh (2.1.17; checked on the
+  live feed 2026-11-20: 346/346 vehicles get one, 269 of 274 that then moved
+  >30 m were within 60° of the real movement).
+- Location: one-shot fixes (20 s cache) plus, while the app is in front, the
+  geolocator position stream (5 m filter) that updates `position` at once;
+  the map keeps the user centred while following. Stopped in the background.
+- The tapped vehicle is painted last (above its line, which is above the
+  rest).
 - The direction cue is a user setting (`vehicle_arrow`, Postavke → „Strelica
   smjera“): `small` (the original chevron), `big`, `contrast` (default since
   2.1.15; white on dark, ink on light) or `beam` (translucent wedge under the

@@ -159,7 +159,18 @@ class FeedController with WidgetsBindingObserver {
       );
     }
 
+    _location.onChange = _onStreamedPosition;
     _startTimer();
+  }
+
+  /// A walking user's fix, straight from the position stream: the map dot
+  /// follows at once and the next 5 s refresh uses it for the nearby stops.
+  void _onStreamedPosition(PositionState pos) {
+    if (_disposed || pos == position.value) return;
+    position.value = pos;
+    if (status.value.gps != pos.gps) {
+      status.value = status.value.copyWith(gps: pos.gps);
+    }
   }
 
   void _onMessage(dynamic message) {
@@ -422,11 +433,13 @@ class FeedController with WidgetsBindingObserver {
         state == AppLifecycleState.detached) {
       _timer?.cancel();
       _timer = null;
+      _location.stopWatching();
     }
   }
 
   void dispose() {
     _disposed = true;
+    _location.stopWatching();
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _requestGuard?.cancel();

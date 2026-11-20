@@ -166,6 +166,9 @@ class FeedEngine {
     final pending = <_PendingVehicle>[];
     final direct = <Vehicle>[];
     final pendingKeys = <String>{};
+    // Direction along each GPS vehicle's own trip, for the first refresh
+    // before a previous position exists (see [_enrichBearings]).
+    final tripBearing = <String, double>{};
     var rtArrivalCount = 0;
 
     // ZET timestamps positions against the feed header rather than "now", and
@@ -205,6 +208,11 @@ class FeedEngine {
             tripId: tid,
           ));
           if (tid.isNotEmpty) pendingKeys.add(tid);
+          if (trip != null && tid.isNotEmpty) {
+            final b = _bearingAlongPattern(data.patterns[trip],
+                vp.position.latitude, vp.position.longitude);
+            if (b != null) tripBearing[tid] = b;
+          }
         }
       }
 
@@ -387,7 +395,7 @@ class FeedEngine {
       addPending(p);
     }
 
-    _enrichBearings(vehicles);
+    _enrichBearings(vehicles, tripBearing);
 
     // ── Arrivals at nearby stops ───────────────────────────────────────────
     var scheduledCount = 0;
@@ -514,7 +522,51 @@ class FeedEngine {
     return h >= 0 && h < data.headsigns.length ? data.headsigns[h] : '';
   }
 
-  void _enrichBearings(List<Vehicle> vehicles) {
+  /// Heading of a vehicle at [lat], [lon] on its trip [pattern]: towards the
+  /// next stop it has not reached yet. Null when the pattern is too short.
+  double? _bearingAlongPattern(TripPattern pattern, double lat, double lon) {
+    final b = _patternHeading(pattern, lat, lon);
+    // ~0° (due north) would read as „no heading“; 360° draws the same.
+    return b == null || b.abs() > 1 ? b : b + 360;
+  }
+
+  double? _patternHeading(TripPattern pattern, double lat, double lon) {
+    final idx = pattern.stopIdx;
+    if (idx.length < 2) return null;
+    var k = 0;
+    var best = double.infinity;
+    for (var i = 0; i < idx.length; i++) {
+      final s = data.stops[idx[i]];
+      final d = haversineM(lat, lon, s.lat, s.lon);
+      if (d < best) {
+        best = d;
+        k = i;
+      }
+    }
+    final at = data.stops[idx[k]];
+    if (k == idx.length - 1) {
+      final prev = data.stops[idx[k - 1]];
+      return bearingDeg(prev.lat, prev.lon, at.lat, at.lon);
+    }
+    final next = data.stops[idx[k + 1]];
+    // Past the nearest stop when closer to the following one than it is.
+    final passed =
+        haversineM(lat, lon, next.lat, next.lon) <
+            haversineM(at.lat, at.lon, next.lat, next.lon);
+    final target = passed ? next : at;
+    // Right at a stop the heading to it is noise: use the stop-to-stop leg.
+    if (haversineM(lat, lon, target.lat, target.lon) < 15) {
+      return bearingDeg(at.lat, at.lon, next.lat, next.lon);
+    }
+    return bearingDeg(lat, lon, target.lat, target.lon);
+  }
+
+  /// Fills in headings ZET does not publish. Moved more than 8 m since the
+  /// last refresh: the direction of that movement. Standing still: the
+  /// previous heading. No usable previous position (first refresh, or a new
+  /// vehicle): towards the next stop of its trip, so arrows show at once.
+  void _enrichBearings(
+      List<Vehicle> vehicles, Map<String, double> tripBearing) {
     final next = <String, List<_PrevPos>>{};
 
     for (var i = 0; i < vehicles.length; i++) {
@@ -522,6 +574,7 @@ class FeedEngine {
       var bearing = v.bearing;
 
       if (bearing.abs() <= 1) {
+        var found = false;
         final prev = _prevByRoute[v.routeShortName];
         if (prev != null) {
           var best = 250.0;
@@ -531,9 +584,11 @@ class FeedEngine {
               best = d;
               bearing =
                   d > 8 ? bearingDeg(p.lat, p.lon, v.lat, v.lon) : p.bearing;
+              found = bearing.abs() > 1;
             }
           }
         }
+        if (!found) bearing = tripBearing[v.tripId] ?? bearing;
       }
 
       if (bearing != v.bearing) {

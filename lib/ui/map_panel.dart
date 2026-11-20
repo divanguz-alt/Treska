@@ -230,11 +230,15 @@ class _MapPanelState extends State<MapPanel> {
 
   void _onPosition() {
     final pos = widget.feed.position.value;
-    if (!_centered && pos.gps) {
+    if (!pos.gps) return;
+    if (!_centered) {
       _centered = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _mapReady) _centerOnUser();
       });
+    } else if (_followUser && _mapReady) {
+      // Walking: keep the user in view until they pan the map themselves.
+      _centerOnUser();
     }
   }
 
@@ -368,15 +372,23 @@ class _MapPanelState extends State<MapPanel> {
         selected.isTram == vehicle.isTram;
   }
 
-  /// [vehicles] with the tapped line's vehicles moved to the end.
+  /// [vehicles] in paint order: the rest, then the tapped line, then the
+  /// tapped vehicle itself, so nothing is ever drawn over it.
   List<Vehicle> _lineLast(List<Vehicle> vehicles) {
     if (_selectedVehicle == null) return vehicles;
-    return [
-      for (final v in vehicles)
-        if (!_isSameLine(v)) v,
-      for (final v in vehicles)
-        if (_isSameLine(v)) v,
-    ];
+    final rest = <Vehicle>[];
+    final line = <Vehicle>[];
+    final selected = <Vehicle>[];
+    for (final v in vehicles) {
+      if (_isSelected(v)) {
+        selected.add(v);
+      } else if (_isSameLine(v)) {
+        line.add(v);
+      } else {
+        rest.add(v);
+      }
+    }
+    return [...rest, ...line, ...selected];
   }
 
   bool _isSelected(Vehicle vehicle) {
@@ -677,7 +689,7 @@ class _MapPanelState extends State<MapPanel> {
                   ),
                   MarkerLayer(
                     markers: [
-                      // The tapped line's vehicles last, so they sit on top.
+                      // The tapped line, then the tapped vehicle, on top of the rest.
                       for (final v in _lineLast(vehicles))
                         Marker(
                           point: LatLng(v.lat, v.lon),

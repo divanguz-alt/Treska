@@ -24,7 +24,17 @@ class PositionState {
 
 /// Thin wrapper around geolocator with a short cache, so the 5 s refresh loop
 /// never blocks on the GPS radio.
+///
+/// While the app is in front it also listens to the position stream (every
+/// 5 m of movement), so walking moves the user's dot and the nearby stops
+/// right away. Until 2.1.16 only a one-shot fix every 20 s was taken, and on
+/// some phones that kept returning the fix from when the app was opened.
 class LocationService {
+  /// Called with every new streamed fix.
+  void Function(PositionState)? onChange;
+
+  StreamSubscription<Position>? _watch;
+
   static const Duration _cacheTtl = Duration(seconds: 20);
 
   PositionState _cached = PositionState.fallback;
@@ -42,6 +52,8 @@ class LocationService {
       _cached = PositionState(_cached.lat, _cached.lon, false);
       return _cached;
     }
+
+    _startWatching();
 
     // Cheap first guess — returns instantly when Android has a cached fix.
     try {
@@ -65,6 +77,35 @@ class LocationService {
       _cachedAt = DateTime.now();
       return _cached;
     }
+  }
+
+  void _startWatching() {
+    if (_watch != null) return;
+    try {
+      _watch = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+        ),
+      ).listen(
+        (p) {
+          _cached = PositionState(p.latitude, p.longitude, true);
+          _cachedAt = DateTime.now();
+          onChange?.call(_cached);
+        },
+        onError: (Object _) => stopWatching(),
+        cancelOnError: true,
+      );
+    } catch (_) {
+      _watch = null;
+    }
+  }
+
+  /// Stops the position stream (app in the background). The next [locate]
+  /// starts it again.
+  void stopWatching() {
+    _watch?.cancel();
+    _watch = null;
   }
 
   Future<bool> _ensurePermission({required bool prompt}) async {
@@ -93,6 +134,7 @@ class LocationService {
 
   /// Called when the user taps the "GPS" chip: re-check and maybe prompt again.
   Future<PositionState> retry() async {
+    stopWatching();
     _permissionChecked = false;
     _prompted = false;
     _cachedAt = DateTime.fromMillisecondsSinceEpoch(0);

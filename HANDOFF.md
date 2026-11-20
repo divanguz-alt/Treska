@@ -1,4 +1,12 @@
-# HANDOFF — Treska (ZET 2) v2.1.16
+# HANDOFF — Treska (ZET 2) v2.1.17
+
+## v2.1.17 (2026-11-20)
+
+- Lokacija se prati dok je aplikacija otvorena (svakih 5 m kretanja), a karta
+  drži korisnika u sredini dok je praćenje uključeno.
+- Odabrano vozilo uvijek je iznad svih ostalih oznaka.
+- Strelice smjera od prvog učitavanja: prema sljedećoj stanici vlastite vožnje,
+  dok ne postoji prethodna pozicija.
 
 ## v2.1.16 (2026-11-11)
 
