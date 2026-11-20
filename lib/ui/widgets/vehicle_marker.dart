@@ -68,12 +68,17 @@ class VehicleMarkerWidget extends StatelessWidget {
   /// highlight colour instead of the mode colour.
   final bool highlighted;
 
+  /// 0..1, [Vehicle.staleness]: how far the badge has faded to grey because
+  /// its GPS fix is old. The tapped line keeps its highlight colour.
+  final double stale;
+
   const VehicleMarkerWidget({
     super.key,
     required this.vehicle,
     this.selected = false,
     this.arrow = VehicleArrow.fallback,
     this.highlighted = false,
+    this.stale = 0,
   });
 
   @override
@@ -81,12 +86,25 @@ class VehicleMarkerWidget extends StatelessWidget {
     final colors = context.zet;
     final isTram = vehicle.isTram;
     final label = vehicle.routeShortName;
-    final fill = highlighted
+    final base = highlighted
         ? (isTram ? colors.tramHi : colors.busHi)
         : (isTram ? colors.tram : colors.bus);
-    final ink = highlighted
+    final fill = highlighted || stale <= 0
+        ? base
+        : Color.lerp(base, isTram ? colors.tramStale : colors.busStale, stale)!;
+    final baseInk = highlighted
         ? (isTram ? colors.onTramHi : colors.onBusHi)
         : (isTram ? colors.onTram : colors.onBus);
+    // On the grey, the number turns black or white, whichever reads.
+    final ink = fill == base
+        ? baseInk
+        : Color.lerp(
+            baseInk,
+            fill.computeLuminance() > 0.22
+                ? const Color(0xFF15181C)
+                : Colors.white,
+            stale,
+          )!;
 
     // Vehicles ZET never sent a GPS fix for are placed from the timetable.
     // Dim them so they never read as live positions.

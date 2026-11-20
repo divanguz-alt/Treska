@@ -45,6 +45,11 @@ class ZetColors extends ThemeExtension<ZetColors> {
   final Color busHi;
   final Color onBusHi;
 
+  /// Where a vehicle's badge fades to once its GPS fix is stale (75-90 s):
+  /// the tram grey lighter than the bus grey, so the modes stay apart.
+  final Color tramStale;
+  final Color busStale;
+
   final Color danger;
   final Color ok;
   final Color warn;
@@ -101,6 +106,8 @@ class ZetColors extends ThemeExtension<ZetColors> {
     required this.onTramHi,
     required this.busHi,
     required this.onBusHi,
+    required this.tramStale,
+    required this.busStale,
     required this.danger,
     required this.ok,
     required this.warn,
@@ -144,6 +151,8 @@ class ZetColors extends ThemeExtension<ZetColors> {
     onTramHi: Color(0xFF3D0024),
     busHi: Color(0xFF3FE0D0),
     onBusHi: Color(0xFF00332E),
+    tramStale: Color(0xFF8A9097),
+    busStale: Color(0xFF666C73),
     danger: Color(0xFFFD7468),
     ok: Color(0xFF6FD087),
     warn: Color(0xFFF2B966),
@@ -192,6 +201,8 @@ class ZetColors extends ThemeExtension<ZetColors> {
     onTramHi: Color(0xFFFFFFFF),
     busHi: Color(0xFF00897B),
     onBusHi: Color(0xFFFFFFFF),
+    tramStale: Color(0xFF8E959C),
+    busStale: Color(0xFF61676D),
     danger: Color(0xFFC0281B),
     ok: Color(0xFF1B9247),
     warn: Color(0xFF9D5300),
@@ -233,6 +244,8 @@ class ZetColors extends ThemeExtension<ZetColors> {
     Color? onTramHi,
     Color? busHi,
     Color? onBusHi,
+    Color? tramStale,
+    Color? busStale,
     Color? danger,
     Color? ok,
     Color? warn,
@@ -273,6 +286,8 @@ class ZetColors extends ThemeExtension<ZetColors> {
       onTramHi: onTramHi ?? this.onTramHi,
       busHi: busHi ?? this.busHi,
       onBusHi: onBusHi ?? this.onBusHi,
+      tramStale: tramStale ?? this.tramStale,
+      busStale: busStale ?? this.busStale,
       danger: danger ?? this.danger,
       ok: ok ?? this.ok,
       warn: warn ?? this.warn,
@@ -319,6 +334,8 @@ class ZetColors extends ThemeExtension<ZetColors> {
       onTramHi: l(onTramHi, other.onTramHi),
       busHi: l(busHi, other.busHi),
       onBusHi: l(onBusHi, other.onBusHi),
+      tramStale: l(tramStale, other.tramStale),
+      busStale: l(busStale, other.busStale),
       danger: l(danger, other.danger),
       ok: l(ok, other.ok),
       warn: l(warn, other.warn),

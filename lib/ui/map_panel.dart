@@ -22,6 +22,7 @@ import 'diagnostics_sheet.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
 import 'widgets/pulse.dart';
+import 'widgets/timer_builder.dart';
 import 'widgets/vehicle_marker.dart';
 
 class MapPanel extends StatefulWidget {
@@ -687,27 +688,36 @@ class _MapPanelState extends State<MapPanel> {
                       ),
                     ],
                   ),
-                  MarkerLayer(
-                    markers: [
-                      // The tapped line, then the tapped vehicle, on top of the rest.
-                      for (final v in _lineLast(vehicles))
-                        Marker(
-                          point: LatLng(v.lat, v.lon),
-                          width: 56,
-                          height: 56,
-                          alignment: Alignment.center,
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => _selectVehicle(v),
-                            child: VehicleMarkerWidget(
-                              vehicle: v,
-                              selected: _isSelected(v),
-                              arrow: widget.settings.vehicleArrow,
-                              highlighted: _isSameLine(v),
+                  // Re-checked every 5 s so badges fade to grey while the
+                  // feed stalls, not only when a new feed lands.
+                  TimerBuilder(
+                    interval: const Duration(seconds: 5),
+                    builder: (context) {
+                      final now = DateTime.now();
+                      return MarkerLayer(
+                        markers: [
+                          // The tapped line, then the tapped vehicle, on top of the rest.
+                          for (final v in _lineLast(vehicles))
+                            Marker(
+                              point: LatLng(v.lat, v.lon),
+                              width: 56,
+                              height: 56,
+                              alignment: Alignment.center,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => _selectVehicle(v),
+                                child: VehicleMarkerWidget(
+                                  vehicle: v,
+                                  selected: _isSelected(v),
+                                  arrow: widget.settings.vehicleArrow,
+                                  highlighted: _isSameLine(v),
+                                  stale: v.staleness(now),
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                    ],
+                        ],
+                      );
+                    },
                   ),
                   MarkerLayer(
                     markers: [
@@ -762,11 +772,19 @@ class _MapPanelState extends State<MapPanel> {
             top: MediaQuery.of(context).padding.top + 116,
             left: ZetSpace.lg,
             right: ZetSpace.lg,
-            child: _VehicleCard(
-              vehicle: _selectedVehicle!,
-              loading: _shapeLoading,
-              hasShape: _selectedShape != null,
-              onClose: _clearVehicleSelection,
+            child: ValueListenableBuilder<List<Vehicle>>(
+              valueListenable: widget.feed.vehicles,
+              builder: (context, vehicles, _) => _VehicleCard(
+                // The same vehicle in the latest feed, so its data age is
+                // current; the tapped copy if it has dropped out.
+                vehicle: vehicles.firstWhere(
+                  _isSelected,
+                  orElse: () => _selectedVehicle!,
+                ),
+                loading: _shapeLoading,
+                hasShape: _selectedShape != null,
+                onClose: _clearVehicleSelection,
+              ),
             ),
           ),
 
@@ -939,6 +957,39 @@ class _VehicleCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                  // „Podaci kasne: 2 min 10 s“ once the fix is over 75 s
+                  // old, counting up every second.
+                  TimerBuilder(
+                    interval: const Duration(seconds: 1),
+                    builder: (context) {
+                      final stale = staleLabel(vehicle, DateTime.now());
+                      if (stale == null) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(
+                          children: [
+                            Icon(Icons.schedule, size: 13, color: colors.warn),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                stale,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: colors.warn,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),

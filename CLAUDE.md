@@ -138,6 +138,16 @@ markers) made the map stutter on the author's phone in 2.1.12.
 - Location: one-shot fixes (20 s cache) plus, while the app is in front, the
   geolocator position stream (5 m filter) that updates `position` at once;
   the map keeps the user centred while following. Stopped in the background.
+- Data age per vehicle, as on zet.skoljka.org (studied 2026-11-20): age =
+  wall clock − the fix's `positionTimestamp`. Over 75 s the badge fades to
+  `ZetColors.tramStale` / `busStale` (smoothstep to 90 s; the number turns
+  black or white to stay readable); the tapped vehicle's card says „Podaci
+  kasne: 2 min 10 s“ (`staleLabel`, `spanLabel`), or „Neispravno vrijeme
+  podataka“ for a missing / >10 s future timestamp. The marker layer is
+  rebuilt every 5 s so a stalled feed still greys out. The tapped line keeps
+  its highlight colour; timetable-placed vehicles keep their own dimming.
+  Measured then: ZET's header ~9 s behind wall clock, median fix age 22 s,
+  19 of 346 vehicles over 75 s.
 - The tapped vehicle is painted last (above its line, which is above the
   rest).
 - The direction cue is a user setting (`vehicle_arrow`, Postavke → „Strelica

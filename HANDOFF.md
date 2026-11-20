@@ -5,6 +5,9 @@
 - Lokacija se prati dok je aplikacija otvorena (svakih 5 m kretanja), a karta
   drži korisnika u sredini dok je praćenje uključeno.
 - Odabrano vozilo uvijek je iznad svih ostalih oznaka.
+- Starost podataka kao na zet.skoljka.org: vozilo čija je GPS pozicija starija
+  od 75 s postupno posivi (do 90 s), a kartica odabranog vozila piše „Podaci
+  kasne: 2 min 10 s“ ili „Neispravno vrijeme podataka“.
 - Strelice smjera od prvog učitavanja: prema sljedećoj stanici vlastite vožnje,
   dok ne postoji prethodna pozicija.
 

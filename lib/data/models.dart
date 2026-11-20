@@ -240,6 +240,35 @@ class Vehicle {
   bool get isTram => routeType == kRouteTypeTram;
   bool get isMoving => bearing.abs() > 1;
 
+  /// A GPS fix older than this reads as stale („Podaci kasne“).
+  static const int staleAfterSec = 75;
+
+  /// Seconds over [staleAfterSec] it takes to fade fully to grey.
+  static const int staleFadeSec = 15;
+
+  /// False when ZET's timestamp cannot be a measurement time: missing, or
+  /// more than 10 s in the future. Timetable-placed vehicles have none.
+  bool get hasValidTimestamp => positionTimestamp > 0;
+
+  /// Seconds since ZET measured this position, or null when the timestamp is
+  /// unusable.
+  int? ageSec(DateTime now) {
+    if (!hasValidTimestamp) return null;
+    final age = now.millisecondsSinceEpoch ~/ 1000 - positionTimestamp;
+    return age < -10 ? null : math.max(0, age);
+  }
+
+  /// 0 for a fresh fix, rising smoothly to 1 between 75 and 90 s of age (and
+  /// 1 for an unusable timestamp): how far the badge fades to grey. Always 0
+  /// for [estimated] vehicles, which are dimmed their own way.
+  double staleness(DateTime now) {
+    if (estimated) return 0;
+    final age = ageSec(now);
+    if (age == null) return 1;
+    final t = ((age - staleAfterSec) / staleFadeSec).clamp(0.0, 1.0);
+    return t * t * (3 - 2 * t);
+  }
+
   Vehicle copyWith({
     double? lat,
     double? lon,
@@ -452,6 +481,32 @@ String two(int n) => n.toString().padLeft(2, '0');
 String hhmmss(DateTime t) => '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
 
 String hhmm(DateTime t) => '${two(t.hour)}:${two(t.minute)}';
+
+/// „2 min 10 s“, „1 h 3 min“, „45 s“: a span of [seconds], largest units
+/// first, zero parts left out.
+String spanLabel(int seconds) {
+  final d = seconds ~/ 86400;
+  final h = seconds % 86400 ~/ 3600;
+  final m = seconds % 3600 ~/ 60;
+  final s = seconds % 60;
+  final parts = [
+    if (d > 0) '$d d',
+    if (h > 0) '$h h',
+    if (m > 0) '$m min',
+  ];
+  if (s > 0 || parts.isEmpty) parts.add('$s s');
+  return parts.join(' ');
+}
+
+/// What the tapped vehicle's card says about an old fix, or null while the
+/// fix is fresh: „Podaci kasne: 2 min 10 s“.
+String? staleLabel(Vehicle v, DateTime now) {
+  if (v.estimated) return null;
+  final age = v.ageSec(now);
+  if (age == null) return 'Neispravno vrijeme podataka';
+  if (age <= Vehicle.staleAfterSec) return null;
+  return 'Podaci kasne: ${spanLabel(age)}';
+}
 
 String distanceLabel(double meters) {
   if (meters < 1000) return '${meters.round()} m';

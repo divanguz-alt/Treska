@@ -25,14 +25,12 @@ void main() {
     test('a DST change day is not anchored at local midnight', () {
       // 25 Oct 2026 is the end of summer time in Europe. Only meaningful when
       // the test machine's zone observes it (CI may run in UTC).
-      final dstDay = DateTime(2026, 10, 25, 12).timeZoneOffset !=
+      final dstDay =
+          DateTime(2026, 10, 25, 12).timeZoneOffset !=
           DateTime(2026, 10, 24, 12).timeZoneOffset;
       final start = serviceDayStart(DateTime(2026, 10, 25, 8));
       final midnight = DateTime(2026, 10, 25);
-      expect(
-        start.difference(midnight).inMinutes.abs(),
-        dstDay ? 60 : 0,
-      );
+      expect(start.difference(midnight).inMinutes.abs(), dstDay ? 60 : 0);
     });
   });
 
@@ -40,12 +38,12 @@ void main() {
     final now = DateTime(2026, 10, 22, 17, 30, 0);
 
     Arrival make(Duration offset) => Arrival(
-          routeShortName: '17',
-          headsign: 'Prečko',
-          time: now.add(offset),
-          source: ArrivalSource.realtime,
-          routeType: kRouteTypeTram,
-        );
+      routeShortName: '17',
+      headsign: 'Prečko',
+      time: now.add(offset),
+      source: ArrivalSource.realtime,
+      routeType: kRouteTypeTram,
+    );
 
     test('rounds up to the next minute', () {
       expect(make(const Duration(seconds: 61)).minutesUntil(now), 2);
@@ -86,5 +84,63 @@ void main() {
     expect(hhmm(DateTime(2026, 1, 2, 23, 59)), '23:59');
     expect(distanceLabel(420), '420 m');
     expect(distanceLabel(1250), '1.3 km');
+  });
+
+  group('vehicle data age (like zet.skoljka.org)', () {
+    final now = DateTime.utc(2026, 11, 20, 17, 0);
+    final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+    Vehicle at(int ageSec, {bool estimated = false, int? ts}) => Vehicle(
+      routeShortName: '17',
+      routeType: kRouteTypeTram,
+      lat: 45.8,
+      lon: 15.9,
+      bearing: 90,
+      headsign: 'Prečko',
+      positionTimestamp: ts ?? nowSec - ageSec,
+      estimated: estimated,
+    );
+
+    test('fresh fixes stay in colour and say nothing', () {
+      expect(at(20).staleness(now), 0);
+      expect(at(75).staleness(now), 0);
+      expect(staleLabel(at(75), now), isNull);
+    });
+
+    test('fades to grey between 75 and 90 s, smoothly', () {
+      final mid = at(82).staleness(now);
+      expect(mid, greaterThan(0.3));
+      expect(mid, lessThan(0.7));
+      expect(at(90).staleness(now), 1);
+      expect(at(600).staleness(now), 1);
+    });
+
+    test('the card counts the age up', () {
+      expect(staleLabel(at(130), now), 'Podaci kasne: 2 min 10 s');
+      expect(staleLabel(at(3720), now), 'Podaci kasne: 1 h 2 min');
+      expect(staleLabel(at(76), now), 'Podaci kasne: 1 min 16 s');
+    });
+
+    test('an unusable timestamp is grey and says so', () {
+      final none = at(0, ts: 0);
+      expect(none.staleness(now), 1);
+      expect(staleLabel(none, now), 'Neispravno vrijeme podataka');
+      final future = at(0, ts: nowSec + 60);
+      expect(staleLabel(future, now), 'Neispravno vrijeme podataka');
+      // A few seconds ahead is clock skew, not an error.
+      expect(staleLabel(at(0, ts: nowSec + 5), now), isNull);
+    });
+
+    test('timetable-placed vehicles are left to their own dimming', () {
+      final est = at(0, ts: 0, estimated: true);
+      expect(est.staleness(now), 0);
+      expect(staleLabel(est, now), isNull);
+    });
+
+    test('spans read like „2 min 10 s“', () {
+      expect(spanLabel(0), '0 s');
+      expect(spanLabel(45), '45 s');
+      expect(spanLabel(120), '2 min');
+      expect(spanLabel(90061), '1 d 1 h 1 min 1 s');
+    });
   });
 }
